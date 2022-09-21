@@ -1,0 +1,12 @@
+{
+  "bos_token": "<s>",
+  "do_lower_case": false,
+  "eos_token": "</s>",
+  "name_or_path": "./wav2vec2-librispeech-clean-100h-demo-dist",
+  "pad_token": "[PAD]",
+  "replace_word_delimiter_char": " ",
+  "special_tokens_map_file": null,
+  "tokenizer_class": "Wav2Vec2CTCTokenizer",
+  "unk_token": "[UNK]",
+  "word_delimiter_token": "|"
+}
