@@ -6,7 +6,6 @@ from tqdm import tqdm
 from transformers import Wav2Vec2Model, BertModel, AdamW, Wav2Vec2Processor, BertTokenizer
 from transformers import EarlyStoppingCallback
 
-from dataset.datasets import LS_dataset
 from models.model import JointModel
 from utils.trainer import MyTrainer
 
@@ -63,6 +62,7 @@ if __name__ == "__main__":
     optimizer = AdamW(model.parameters(), lr=5e-5)
 
     for epoch in range(5):
+        step = 1
         for batch in tqdm(dataloader):
             audio_input = batch['audio'].to(device)
             text_ids = batch['text_ids'].to(device)
@@ -70,7 +70,8 @@ if __name__ == "__main__":
             attn_mask = batch['attn_mask'].to(device)
             audio, text = model(audio_input, text_ids, token_ids, attn_mask)
             loss = compute_loss(audio, text)
-            print('loss :{}'.format(loss))
+            print('step: {}, loss :{}'.format(step, loss))
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
+            step += 1
