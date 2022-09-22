@@ -24,8 +24,8 @@ def compute_metrics(eval_pred):
 def data_collate(batch):
     audio = [val['audio']['array'] for val in batch]
     text = [val['text'] for val in batch]
-    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-    tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+    processor = Wav2Vec2Processor.from_pretrained("./pretrain_models/wav2vec2-base-960h")
+    tokenizer = BertTokenizer.from_pretrained('./pretrain_models/bert-base-cased')
     audio_feat = processor(audio, return_tensors="pt", padding="longest").input_values
     text_ids = []
     token_ids = []
@@ -47,17 +47,14 @@ def compute_loss(input, target):
     return loss
 
 if __name__ == "__main__":
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    text_encoder = BertModel.from_pretrained('bert-base-cased')
-    audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
+    text_encoder = BertModel.from_pretrained('./pretrain_models/bert-base-cased')
+    audio_encoder = Wav2Vec2Model.from_pretrained("./pretrain_models/wav2vec2-base-960h")
     model = JointModel(audio_encoder, text_encoder).to(device)
-
 
     # load dummy dataset and read soundfiles
     ds = load_dataset("patrickvonplaten/librispeech_asr_dummy", "clean", split="validation")
     dataloader = torch.utils.data.DataLoader(ds, batch_size=5, collate_fn=data_collate)
-
     es = EarlyStoppingCallback(early_stopping_patience=5)
     optimizer = AdamW(model.parameters(), lr=5e-5)
 
