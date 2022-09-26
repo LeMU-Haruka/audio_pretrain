@@ -1,13 +1,14 @@
 from datasets import load_dataset
 from s3prl.downstream.asr.dictionary import Dictionary
-from torch import Tensor
+from torch import Tensor, autograd
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
+from torch.optim import AdamW
 from tqdm import tqdm
-from transformers import Wav2Vec2Model, BertModel, AdamW, Wav2Vec2Processor, BertTokenizer
+from transformers import Wav2Vec2Model, BertModel, Wav2Vec2Processor, BertTokenizer
 from transformers import EarlyStoppingCallback
 
-from dataset.s3prl_dataset import SequenceDataset
+from dataset.LS_datasets import SequenceDataset
 from models.model import JointModel, MaxPoolFusion
 from utils.trainer import MyTrainer
 
@@ -68,29 +69,30 @@ if __name__ == "__main__":
     # load dummy dataset and read soundfiles
     print('begin to load data')
     # ds = load_dataset("patrickvonplaten/librispeech_asr_dummy", "clean", split="validation")
-    ds = SequenceDataset(split='test-clean', dictionary=Dictionary(), text_encoder=text_encoder, tokenizer=tokenizer,
-                              libri_root='F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech',
-                              **args)
+    ds = SequenceDataset(libri_root='F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech', bucket_dir='./dataset/data',
+                         bucket_file=['test-clean'], tokenizer=tokenizer, text_encoder=text_encoder)
 
-    dataloader = torch.utils.data.DataLoader(ds, batch_size=1, collate_fn=ds.collate_fn)
+    dataloader = torch.utils.data.DataLoader(ds, batch_size=16, num_workers=2, collate_fn=ds.collate_fn)
     es = EarlyStoppingCallback(early_stopping_patience=5)
     optimizer = AdamW(model.parameters(), lr=5e-5)
 
-    file = './log.txt'
-    f = open(file, 'w')
-    f.write('begin to train model\n')
+    # file = './log.txt'
+    # f = open(file, 'w')
+    # f.write('begin to train model\n')
+    print('begin to train model')
     for epoch in range(2):
         step = 1
         for batch in tqdm(dataloader):
             print('begin to train step {}'.format(step))
-            f.write('begin to train step {}\n'.format(step))
-            audio_input = batch[0].to(device)
-            text_input = batch[4].to(device)
-            loss, audio, text = model(audio_input, text_input)
-            f.write('step: {}, loss :{}\n'.format(step, loss))
-            print('step: {}, loss :{}'.format(step, loss))
-            loss.backward()
+            # f.write('begin to train step {}\n'.format(step))
+            audio_input = batch['wav'].to(device)
+            text_input = batch['text_feat'].to(device)
+            with autograd.detect_anomaly():
+                loss, audio, text = model(audio_input, text_input)
+                # f.write('step: {}, loss :{}\n'.format(step, loss))
+                print('step: {}, loss :{}'.format(step, loss))
+                loss.backward()
             optimizer.step()
             optimizer.zero_grad()
             step += 1
-    f.close()
+    # f.close()

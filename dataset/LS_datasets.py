@@ -36,18 +36,21 @@ HALF_BATCHSIZE_TIME = 2000
 ####################
 class SequenceDataset(Dataset):
 
-    def __init__(self, libri_root, bucket_file):
+    def __init__(self, libri_root, bucket_dir, bucket_file, tokenizer, text_encoder):
         super(SequenceDataset, self).__init__()
 
+        self.tokenizer = tokenizer
+        self.text_encoder = text_encoder
         self.libri_root = libri_root
         self.sample_rate = SAMPLE_RATE
         # Wavs
         table_list = []
-        file_path = os.path.join(bucket_file)
-        if os.path.exists(file_path):
-            table_list.append(
-                pd.read_csv(file_path)
-            )
+        for file in bucket_file:
+            file_path = os.path.join(bucket_dir, (file + '.csv'))
+            if os.path.exists(file_path):
+                table_list.append(
+                    pd.read_csv(file_path)
+                )
 
         table_list = pd.concat(table_list)
         table_list = table_list.sort_values(by=['length'], ascending=False)
@@ -105,30 +108,47 @@ class SequenceDataset(Dataset):
     def __len__(self):
         return len(self.X)
 
+    def encode_text(self, text):
+        text_token = self.tokenizer(text, return_tensors='pt')
+        with torch.no_grad():
+            text_feat = self.text_encoder(**text_token).last_hidden_state
+            text_feat = text_feat.squeeze()
+        return text_feat
+
     def __getitem__(self, index):
         # Load acoustic feature and pad
         file = self.X[index]
-        wav = self._load_wav(file).numpy()
-        length = self.X_lens[index]
+        wav = self._load_wav(file)
+        audio_len = self.X_lens[index]
         text = self.Y[self._parse_x_name(file)]
+        text_feat = self.encode_text(text)
+        text_len = len(text.split(' '))
         filename = Path(file).stem
-        return {'wav': wav, 'text': text, 'length': length, 'filename': filename}
+        return {'wav': wav, 'text_feat': text_feat, 'text': text, 'audio_len': audio_len, 'text_len': text_len,'filename': filename}
 
-    def collate_fn(self, items):
-        assert len(items) == 1
-        return items[0][0], items[0][1], items[0][2]  # hack bucketing, return (wavs, labels, filenames)
+    def collate_fn(self, data):
+        wav_batch = [item['wav'] for item in data]
+        wav_batch = pad_sequence(wav_batch).transpose(0, 1)
+        text_batch = [item['text_feat'] for item in data]
+        text_batch = pad_sequence(text_batch).transpose(0, 1)
+        text = [item['text'] for item in data]
+        audio_len = [item['audio_len'] for item in data]
+        text_len = [item['text_len'] for item in data]
+        filename = [item['filename'] for item in data]
+        return {'wav': wav_batch, 'text_feat': text_batch,
+                'text': text, 'audio_len': audio_len, 'text_len': text_len,'filename': filename}
 
-def collate_fn(data):
-    wavs = [d['wav'] for d in data]
-    text = [d['text'] for d in data]
-    length = [d['length'] for d in data]
-    filename = [d['filename'] for d in data]
-    wavs_batch = [torch.Tensor(np.array(feat)).squeeze() for feat in wavs]
-    wavs_batch = torch.nn.utils.rnn.pad_sequence(wavs_batch)
-    return {'wav': wavs_batch,
-            'text': text,
-            'length': length,
-            'filename': filename}
+# def collate_fn(data):
+#     wavs = [d['wav'] for d in data]
+#     text = [d['text'] for d in data]
+#     length = [d['length'] for d in data]
+#     filename = [d['filename'] for d in data]
+#     wavs_batch = [torch.Tensor(np.array(feat)).squeeze() for feat in wavs]
+#     wavs_batch = torch.nn.utils.rnn.pad_sequence(wavs_batch)
+#     return {'wav': wavs_batch,
+#             'text': text,
+#             'length': length,
+#             'filename': filename}
 
 
 # dataset = SequenceDataset('F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech', './data/test-clean.csv')
