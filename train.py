@@ -55,7 +55,7 @@ def compute_loss(input, target):
 if __name__ == "__main__":
     args = {
         'test-clean': ['test-clean'],
-        'bucket_size': 10,
+        'bucket_size': 32,
         'bucket_file': './dataset/data'
     }
 
@@ -76,12 +76,14 @@ if __name__ == "__main__":
     es = EarlyStoppingCallback(early_stopping_patience=5)
     optimizer = AdamW(model.parameters(), lr=5e-5)
 
-    for epoch in range(5):
+    print('begin to train model')
+    for epoch in range(2):
         step = 1
         for batch in dataloader:
+            print('begin to train step {}'.format(step))
             audio_input = batch[0].to(device)
-            text_feat = batch[4].to(device)
-            loss, audio, text = model(audio_input, text_feat)
+            text_input = batch[4].to(device)
+            loss, audio, text = model(audio_input, text_input)
             print('step: {}, loss :{}'.format(step, loss))
             loss.backward()
             optimizer.step()
