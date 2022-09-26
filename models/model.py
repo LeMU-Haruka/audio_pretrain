@@ -4,6 +4,7 @@ import torch.nn as nn
 import numpy as np
 import math
 
+
 class MaxPool(nn.Module):
     def __init__(self):
         super().__init__()
@@ -13,23 +14,31 @@ class MaxPool(nn.Module):
         return out
 
 
-class JointModel(nn.Module):
-
-    def __init__(self, audio_encoder, text_encoder):
-        super(JointModel, self).__init__()
-        self.audio_encoder = audio_encoder
-        self.text_encoder = text_encoder
+class MaxPoolFusion(nn.Module):
+    def __init__(self):
+        super(MaxPoolFusion, self).__init__()
         self.audio_pool = MaxPool()
         self.text_pool = MaxPool()
+        self.loss = nn.MSELoss()
 
-    def forward(self, audio, input_ids, token_type_ids, attention_mask):
+    def forward(self, audio, text):
+        audio_pool = self.audio_pool(audio)
+        text_pool = self.text_pool(text)
+        return self.loss(audio_pool, text_pool), audio_pool, text_pool
+
+
+class JointModel(nn.Module):
+
+    def __init__(self, audio_encoder, fusion):
+        super(JointModel, self).__init__()
+        self.audio_encoder = audio_encoder
+        self.fusion = fusion
+
+    def forward(self, audio, text_feat):
         audio_feat = self.audio_encoder(audio).last_hidden_state
         audio_pool = self.audio_pool(audio_feat)
-        with torch.no_grad():
-            text_feat = self.text_encoder(input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask).last_hidden_state
-            text_pool = self.text_pool(text_feat)
-
-        return audio_pool, text_pool
+        loss, audio_pool, text_pool = self.fusion(audio_pool, text_feat)
+        return loss, audio_pool, text_pool
 
     def mask_out(self, x, lengths):
         """
