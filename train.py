@@ -78,7 +78,7 @@ if __name__ == "__main__":
 
     for epoch in range(5):
         step = 1
-        for batch in tqdm(dataloader):
+        for batch in dataloader:
             audio_input = batch[0].to(device)
             text_feat = batch[4].to(device)
             loss, audio, text = model(audio_input, text_feat)

@@ -130,3 +130,9 @@ dmypy.json
 
 # pycharm
 .idea/
+
+# code
+pretrain_models/
+.pretrain_models
+.pretrain_models/
+*/pretrain_models/

@@ -27,6 +27,17 @@ class MaxPoolFusion(nn.Module):
         return self.loss(audio_pool, text_pool), audio_pool, text_pool
 
 
+class TransformerWithMask(nn.Module):
+
+    def __init__(self, args):
+        super(TransformerWithMask, self).__init__()
+        self.token_mask_rate = args.token_mask_rate
+        self.language_mask_rate = args.language_mask_rate
+        self.audio_mask_rate = args.audio_mask_rate
+
+    def forward(self, audio, text):
+        return audio, text
+
 class JointModel(nn.Module):
 
     def __init__(self, audio_encoder, fusion):
@@ -36,8 +47,7 @@ class JointModel(nn.Module):
 
     def forward(self, audio, text_feat):
         audio_feat = self.audio_encoder(audio).last_hidden_state
-        audio_pool = self.audio_pool(audio_feat)
-        loss, audio_pool, text_pool = self.fusion(audio_pool, text_feat)
+        loss, audio_pool, text_pool = self.fusion(audio_feat, text_feat)
         return loss, audio_pool, text_pool
 
     def mask_out(self, x, lengths):
