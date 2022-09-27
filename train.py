@@ -74,7 +74,7 @@ if __name__ == "__main__":
 
     dataloader = torch.utils.data.DataLoader(ds, batch_size=16, num_workers=2, collate_fn=ds.collate_fn)
     es = EarlyStoppingCallback(early_stopping_patience=5)
-    optimizer = AdamW(model.parameters(), lr=5e-5)
+    optimizer = AdamW(model.parameters(), lr=1e-5)
 
     # file = './log.txt'
     # f = open(file, 'w')
@@ -83,7 +83,6 @@ if __name__ == "__main__":
     for epoch in range(2):
         step = 1
         for batch in tqdm(dataloader):
-            print('begin to train step {}'.format(step))
             # f.write('begin to train step {}\n'.format(step))
             audio_input = batch['wav'].to(device)
             text_input = batch['text_feat'].to(device)

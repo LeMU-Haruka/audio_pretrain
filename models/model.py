@@ -20,10 +20,14 @@ class MaxPoolFusion(nn.Module):
         self.audio_pool = MaxPool()
         self.text_pool = MaxPool()
         self.loss = nn.MSELoss()
+        self.audio_bn = nn.BatchNorm1d(768)
+        self.text_bn = nn.BatchNorm1d(768)
 
     def forward(self, audio, text):
         audio_pool = self.audio_pool(audio)
         text_pool = self.text_pool(text)
+        audio_pool = self.audio_bn(audio_pool)
+        text_pool = self.text_bn(text_pool)
         return self.loss(audio_pool, text_pool), audio_pool, text_pool
 
 
