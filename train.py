@@ -118,7 +118,9 @@ if __name__ == "__main__":
             # scaler.update()
             # torch.cuda.empty_cache()
             step += 1
-        torch.save(model.state_dict(), 'model_{}.pt'.format(epoch))
+        # torch.save(model.state_dict(), 'model_{}.pt'.format(epoch))
+        torch.save(model.audio_encoder.state_dict(), 'w2v_{}.pt'.format(epoch))
+        torch.save(model.fusion.state_dict(), 'trans_{}.pt'.format(epoch))
         print('epoch {} finished, save model: model_{}.pt'.format(epoch, epoch))
         torch.cuda.empty_cache()
     # f.close()
