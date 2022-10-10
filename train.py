@@ -5,6 +5,7 @@ from torch.optim import AdamW
 from tqdm import tqdm
 from transformers import Wav2Vec2Model, BertModel, Wav2Vec2Processor, BertTokenizer, BartConfig
 from transformers import EarlyStoppingCallback
+from torch.cuda.amp import autocast as autocast, GradScaler
 
 from dataset.LS_datasets import SequenceDataset
 from models.model import JointModel, MaxPoolFusion
@@ -23,7 +24,7 @@ torch.cuda.manual_seed_all(seed)
 
 
 config = BartConfig()
-config.num_hidden_layers = 1
+config.num_hidden_layers = 3
 config.hidden_size = 768
 config.hidden_act = 'relu'
 config.pad_index = 103
@@ -95,6 +96,8 @@ if __name__ == "__main__":
     # file = './log.txt'
     # f = open(file, 'w')
     # f.write('begin to train model\n')
+    scaler = GradScaler()
+
     print('begin to train model')
     for epoch in range(10):
         if epoch > 0:
@@ -105,12 +108,16 @@ if __name__ == "__main__":
             # f.write('begin to train step {}\n'.format(step))
             audio_input = batch['wav']
             text_input = batch['text_feat']
-            with autograd.detect_anomaly():
+            with autocast():
                 loss = model(audio_input, text_input)
                 # f.write('step: {}, loss :{}\n'.format(step, loss))
                 print('step: {}, loss :{}'.format(step, loss))
-                loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
+            # loss.backward()
+            # optimizer.step()
+            # optimizer.zero_grad()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            # torch.cuda.empty_cache()
             step += 1
     # f.close()
