@@ -5,17 +5,29 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from tqdm import tqdm
-from transformers import Wav2Vec2Model, BertModel, Wav2Vec2Processor, BertTokenizer
+from transformers import Wav2Vec2Model, BertModel, Wav2Vec2Processor, BertTokenizer, BartConfig
 from transformers import EarlyStoppingCallback
 
 from dataset.LS_datasets import SequenceDataset
 from models.model import JointModel, MaxPoolFusion
+from models.transformer import CrossTransformer
 from utils.trainer import MyTrainer
 
 import torch
 import torch.nn as nn
 import numpy as np
 
+seed = 42
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+
+
+config = BartConfig()
+config.num_hidden_layers = 3
+config.hidden_size = 768
+config.hidden_act = 'relu'
 
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
@@ -54,6 +66,7 @@ def compute_loss(input, target):
 
 
 if __name__ == "__main__":
+
     args = {
         'test-clean': ['test-clean'],
         'bucket_size': 10,
@@ -63,16 +76,17 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     text_encoder = BertModel.from_pretrained('./pretrain_models/bert-base-cased')
     tokenizer = BertTokenizer.from_pretrained('./pretrain_models/bert-base-cased')
-    audio_encoder = Wav2Vec2Model.from_pretrained("./pretrain_models/wav2vec2-base-960h")
-    model = JointModel(audio_encoder, MaxPoolFusion()).to(device)
-
+    # tokenizer.save_pretrained('./pretrain_models/bert-large-uncased')
+    audio_encoder = Wav2Vec2Model.from_pretrained("./pretrain_models/wav2vec2-base-960h").to(device)
+    model = JointModel(audio_encoder, text_encoder, CrossTransformer(config).to(device))
+    torch.cuda.memory_summary(device)
     # load dummy dataset and read soundfiles
     print('begin to load data')
     # ds = load_dataset("patrickvonplaten/librispeech_asr_dummy", "clean", split="validation")
     ds = SequenceDataset(libri_root='F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech', bucket_dir='./dataset/data',
                          bucket_file=['test-clean'], tokenizer=tokenizer, text_encoder=text_encoder)
 
-    dataloader = torch.utils.data.DataLoader(ds, batch_size=16, num_workers=2, collate_fn=ds.collate_fn)
+    dataloader = torch.utils.data.DataLoader(ds, batch_size=2, num_workers=1, collate_fn=ds.collate_fn)
     es = EarlyStoppingCallback(early_stopping_patience=5)
     optimizer = AdamW(model.parameters(), lr=1e-5)
 
@@ -84,10 +98,10 @@ if __name__ == "__main__":
         step = 1
         for batch in tqdm(dataloader):
             # f.write('begin to train step {}\n'.format(step))
-            audio_input = batch['wav'].to(device)
-            text_input = batch['text_feat'].to(device)
+            audio_input = batch['wav']
+            text_input = batch['text_feat']
             with autograd.detect_anomaly():
-                loss, audio, text = model(audio_input, text_input)
+                loss = model(audio_input, text_input)
                 # f.write('step: {}, loss :{}\n'.format(step, loss))
                 print('step: {}, loss :{}'.format(step, loss))
                 loss.backward()

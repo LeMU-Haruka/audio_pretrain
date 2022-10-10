@@ -20,7 +20,6 @@ from tqdm import tqdm
 from pathlib import Path
 # -------------#
 import torch
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data.dataset import Dataset
 # -------------#
 import torchaudio
@@ -69,6 +68,8 @@ class SequenceDataset(Dataset):
 
         self.Y = Y
 
+        # self.Y_t = {key : self.mask_out(self.Y[key], 0) for key in usage_list}
+
     def _parse_x_name(self, x):
         return x.split('/')[-1].split('.')[0]
 
@@ -110,33 +111,100 @@ class SequenceDataset(Dataset):
 
     def encode_text(self, text):
         text_token = self.tokenizer(text, return_tensors='pt')
-        with torch.no_grad():
-            text_feat = self.text_encoder(**text_token).last_hidden_state
-            text_feat = text_feat.squeeze()
-        return text_feat
+        # with torch.no_grad():
+        #     text_feat = self.text_encoder(**text_token).last_hidden_state
+        #     text_feat = text_feat.squeeze()
+        text_labels, mask_label, mask, label = self.mask_out(text_token['input_ids'], 0)
+        if text_labels is None:
+            return None
+        text_token['input_ids'] = text_labels
+        return text_token, mask_label, mask, label
 
     def __getitem__(self, index):
         # Load acoustic feature and pad
         file = self.X[index]
-        wav = self._load_wav(file)
+        wav = self._load_wav(file).unsqueeze(1).transpose(0, 1)
         audio_len = self.X_lens[index]
         text = self.Y[self._parse_x_name(file)]
         text_feat = self.encode_text(text)
+        if text_feat is None:
+            print('drop data index = {}, file is {}'.format(index, file))
+            return None
         text_len = len(text.split(' '))
         filename = Path(file).stem
         return {'wav': wav, 'text_feat': text_feat, 'text': text, 'audio_len': audio_len, 'text_len': text_len,'filename': filename}
 
     def collate_fn(self, data):
+        data = list(filter(None, data))
         wav_batch = [item['wav'] for item in data]
-        wav_batch = pad_sequence(wav_batch).transpose(0, 1)
+        # wav_batch = pad_sequence(wav_batch).transpose(0, 1)
         text_batch = [item['text_feat'] for item in data]
-        text_batch = pad_sequence(text_batch).transpose(0, 1)
+        # text_batch = pad_sequence(text_batch).transpose(0, 1)
         text = [item['text'] for item in data]
         audio_len = [item['audio_len'] for item in data]
         text_len = [item['text_len'] for item in data]
         filename = [item['filename'] for item in data]
         return {'wav': wav_batch, 'text_feat': text_batch,
                 'text': text, 'audio_len': audio_len, 'text_len': text_len,'filename': filename}
+
+    def mask_out(self, x, lengths):
+        """
+        Decide of random words to mask out, and what target they get assigned.
+        """
+        word_pred = 0.15
+        fp16 = False
+        params = {'mask_index': 103}
+        sample_alpha = 0
+        mask_index = 103
+        bs, slen = x.size()
+        word_mask, word_keep, word_rand = 0.8,0.1,0.1
+        pred_probs = torch.FloatTensor([word_mask, word_keep, word_rand])
+
+        # define target words to predict
+        if sample_alpha == 0:
+            pred_mask = np.random.rand(bs, slen) <= word_pred
+            pred_mask = torch.from_numpy(pred_mask.astype(np.uint8))
+        else:
+            x_prob = params.mask_scores[x.flatten()]
+            n_tgt = math.ceil(params.word_pred * slen * bs)
+            tgt_ids = np.random.choice(len(x_prob), n_tgt, replace=False, p=x_prob / x_prob.sum())
+            pred_mask = torch.zeros(slen * bs, dtype=torch.uint8)
+            pred_mask[tgt_ids] = 1
+            pred_mask = pred_mask.view(slen, bs)
+
+        # do not predict padding
+        # 将batch padding的部分去掉不考虑
+        # pred_mask[x == params.pad_index] = 0
+        # pred_mask[0] = 0  # TODO: remove
+
+        # mask a number of words == 0 [8] (faster with fp16)
+        if fp16:
+            pred_mask = pred_mask.view(-1)
+            n1 = pred_mask.sum().item()
+            n2 = max(n1 % 8, 8 * (n1 // 8))
+            if n2 != n1:
+                pred_mask[torch.nonzero(pred_mask).view(-1)[:n1 - n2]] = 0
+            pred_mask = pred_mask.view(slen, bs)
+            assert pred_mask.sum().item() % 8 == 0
+
+        # generate possible targets / update x input
+        _x_real = x[pred_mask]
+        _x_rand = _x_real.clone().random_(28996)
+        _x_mask = _x_real.clone().fill_(mask_index)
+        try:
+            probs = torch.multinomial(pred_probs, len(_x_real), replacement=True)
+        except:
+            print('error happen in multinomial {}'.format(_x_real))
+            return None, None, None, None
+        _x = _x_mask * (probs == 0).long() + _x_real * (probs == 1).long() + _x_rand * (probs == 2).long()
+        x = x.masked_scatter(pred_mask, _x)
+        label = torch.tensor(pred_mask.clone(), dtype=torch.int64)
+        label = label.masked_scatter(pred_mask, _x)
+        # assert 0 <= x.min() <= x.max() < params.n_words
+        # assert x.size() == (slen, bs)
+        # assert pred_mask.size() == (slen, bs)
+
+        return x, _x_real, pred_mask, label
 
 # def collate_fn(data):
 #     wavs = [d['wav'] for d in data]

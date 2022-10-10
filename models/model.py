@@ -3,6 +3,9 @@ import torch
 import torch.nn as nn
 import numpy as np
 import math
+from torch.nn.utils.rnn import pad_sequence
+from transformers.models.bart.modeling_bart import BartAttention
+from transformers.models.wav2vec2.modeling_wav2vec2 import Wav2Vec2PositionalConvEmbedding
 
 
 class MaxPool(nn.Module):
@@ -31,39 +34,45 @@ class MaxPoolFusion(nn.Module):
         return self.loss(audio_pool, text_pool), audio_pool, text_pool
 
 
-class TransformerWithMask(nn.Module):
-
-    def __init__(self, args):
-        super(TransformerWithMask, self).__init__()
-        self.token_mask_rate = args.token_mask_rate
-        self.language_mask_rate = args.language_mask_rate
-        self.audio_mask_rate = args.audio_mask_rate
-
-    def forward(self, audio, text):
-        return audio, text
-
 class JointModel(nn.Module):
 
-    def __init__(self, audio_encoder, fusion):
+    def __init__(self, audio_encoder, text_encoder, fusion):
         super(JointModel, self).__init__()
         self.audio_encoder = audio_encoder
+        self.text_encoder = text_encoder
         self.fusion = fusion
 
-    def forward(self, audio, text_feat):
-        audio_feat = self.audio_encoder(audio).last_hidden_state
-        loss, audio_pool, text_pool = self.fusion(audio_feat, text_feat)
-        return loss, audio_pool, text_pool
+    def forward(self, audio, text):
+        with torch.no_grad():
+            audio_feat = [self.audio_encoder(val.to(self.audio_encoder.device)).last_hidden_state for val in audio]
+            text_feat = [self.text_encoder(**val[0]).last_hidden_state for val in text]
+        features = [torch.cat([a.squeeze(), t.squeeze().to(self.audio_encoder.device)], 0) for a, t in zip(audio_feat, text_feat)]
+        audio_len = [val.shape[1] for val in audio_feat]
+        real_label = [val[1] for val in text]
+        mask_index = [val[2] for val in text]
+        label = [val[3] for val in text]
+        features = pad_sequence(features).transpose(0, 1)
+        loss = self.fusion(features, audio_len, mask_index, label)
+        return loss
+
+    def feature_mask(self, x, lengths):
+        pass
+
 
     def mask_out(self, x, lengths):
         """
         Decide of random words to mask out, and what target they get assigned.
         """
-        params = self.params
+        x = x.squeeze()
+        word_pred = 0.15
+        fp16 = False
+        params = {}
+        sample_alpha = 0
         slen, bs = x.size()
 
         # define target words to predict
-        if params.sample_alpha == 0:
-            pred_mask = np.random.rand(slen, bs) <= params.word_pred
+        if sample_alpha == 0:
+            pred_mask = np.random.rand(slen, bs) <= word_pred
             pred_mask = torch.from_numpy(pred_mask.astype(np.uint8))
         else:
             x_prob = params.mask_scores[x.flatten()]
@@ -74,11 +83,12 @@ class JointModel(nn.Module):
             pred_mask = pred_mask.view(slen, bs)
 
         # do not predict padding
-        pred_mask[x == params.pad_index] = 0
-        pred_mask[0] = 0  # TODO: remove
+        # 将batch padding的部分去掉不考虑
+        # pred_mask[x == params.pad_index] = 0
+        # pred_mask[0] = 0  # TODO: remove
 
         # mask a number of words == 0 [8] (faster with fp16)
-        if params.fp16:
+        if fp16:
             pred_mask = pred_mask.view(-1)
             n1 = pred_mask.sum().item()
             n2 = max(n1 % 8, 8 * (n1 // 8))
@@ -89,7 +99,7 @@ class JointModel(nn.Module):
 
         # generate possible targets / update x input
         _x_real = x[pred_mask]
-        _x_rand = _x_real.clone().random_(params.n_words)
+        _x_rand = _x_real.clone().random_(28996)
         _x_mask = _x_real.clone().fill_(params.mask_index)
         probs = torch.multinomial(params.pred_probs, len(_x_real), replacement=True)
         _x = _x_mask * (probs == 0).long() + _x_real * (probs == 1).long() + _x_rand * (probs == 2).long()
@@ -102,11 +112,13 @@ class JointModel(nn.Module):
         return x, _x_real, pred_mask
 #
 # from transformers import BertModel, BertTokenizer
-# # bert = BertModel.from_pretrained('bert-base-cased')
-# # tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
-# # text = 'i am hello world'
-# # toked = tokenizer(text, return_tensors='pt')
-# # output = bert(**toked)
+# bert = BertModel.from_pretrained('bert-base-cased')
+# tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+# text = 'i am hello world'
+# toked = tokenizer(text, return_tensors='pt')
+# output = bert(**toked).last_hidden_state
+# model = JointModel(None, None)
+# test = model.mask_out(output, toked)
 # # print('done')
 #
 # from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC, Wav2Vec2Model
