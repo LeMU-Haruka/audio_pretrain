@@ -26,6 +26,7 @@ torch.cuda.manual_seed_all(seed)
 config = BartConfig()
 config.num_hidden_layers = 3
 config.hidden_size = 768
+config.encoder_ffn_dim = 2048
 config.hidden_act = 'relu'
 config.pad_index = 103
 config.word_pred = 0.15
@@ -105,19 +106,17 @@ if __name__ == "__main__":
         print('new epoch run, modal mask is {}'.format(ds.modal_mask))
         step = 1
         for batch in tqdm(dataloader):
-            # f.write('begin to train step {}\n'.format(step))
             audio_input = batch['wav']
             text_input = batch['text_feat']
-            with autocast():
-                loss = model(audio_input, text_input)
-                # f.write('step: {}, loss :{}\n'.format(step, loss))
-                print('step: {}, loss :{}'.format(step, loss))
-            # loss.backward()
-            # optimizer.step()
-            # optimizer.zero_grad()
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            loss = model(audio_input, text_input)
+            print('step: {}, loss :{}'.format(step, loss))
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+            # scaler.scale(loss).backward()
+            # scaler.step(optimizer)
+            # scaler.update()
             # torch.cuda.empty_cache()
             step += 1
+        torch.cuda.empty_cache()
     # f.close()
