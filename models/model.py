@@ -7,6 +7,8 @@ from torch.nn.utils.rnn import pad_sequence
 from transformers.models.bart.modeling_bart import BartAttention
 from transformers.models.wav2vec2.modeling_wav2vec2 import Wav2Vec2PositionalConvEmbedding
 
+from models.transformer import CrossTransformer
+
 
 class MaxPool(nn.Module):
     def __init__(self):
@@ -36,15 +38,21 @@ class MaxPoolFusion(nn.Module):
 
 class JointModel(nn.Module):
 
-    def __init__(self, audio_encoder, text_encoder, fusion):
+    def __init__(self, audio_encoder, text_encoder, config):
         super(JointModel, self).__init__()
+        self.config = config
         self.audio_encoder = audio_encoder
         self.text_encoder = text_encoder
-        self.fusion = fusion
+        self.fusion = CrossTransformer(config).to(config.device)
 
     def forward(self, audio, text):
-        with torch.no_grad():
+        if self.config.is_train_wav2vec:
             audio_feat = [self.audio_encoder(val.to(self.audio_encoder.device)).last_hidden_state for val in audio]
+        else:
+            with torch.no_grad():
+                audio_feat = [self.audio_encoder(val.to(self.audio_encoder.device)).last_hidden_state for val in audio]
+
+        with torch.no_grad():
             text_feat = [self.text_encoder(**val[0]).last_hidden_state for val in text]
         features = [torch.cat([a.squeeze(), t.squeeze().to(self.audio_encoder.device)], 0) for a, t in zip(audio_feat, text_feat)]
         audio_len = [val.shape[1] for val in audio_feat]
@@ -54,9 +62,6 @@ class JointModel(nn.Module):
         features = pad_sequence(features).transpose(0, 1)
         loss = self.fusion(features, audio_len, mask_index, label)
         return loss
-
-    def feature_mask(self, x, lengths):
-        pass
 
 
     def mask_out(self, x, lengths):

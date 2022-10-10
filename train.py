@@ -1,5 +1,3 @@
-from datasets import load_dataset
-from s3prl.downstream.asr.dictionary import Dictionary
 from torch import Tensor, autograd
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
@@ -11,7 +9,7 @@ from transformers import EarlyStoppingCallback
 from dataset.LS_datasets import SequenceDataset
 from models.model import JointModel, MaxPoolFusion
 from models.transformer import CrossTransformer
-from utils.trainer import MyTrainer
+
 
 import torch
 import torch.nn as nn
@@ -25,9 +23,12 @@ torch.cuda.manual_seed_all(seed)
 
 
 config = BartConfig()
-config.num_hidden_layers = 3
+config.num_hidden_layers = 1
 config.hidden_size = 768
 config.hidden_act = 'relu'
+config.pad_index = 103
+config.word_pred = 0.15
+config.is_train_wav2vec=False
 
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
@@ -74,19 +75,20 @@ if __name__ == "__main__":
     }
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    config.device = device
     text_encoder = BertModel.from_pretrained('./pretrain_models/bert-base-cased')
     tokenizer = BertTokenizer.from_pretrained('./pretrain_models/bert-base-cased')
     # tokenizer.save_pretrained('./pretrain_models/bert-large-uncased')
     audio_encoder = Wav2Vec2Model.from_pretrained("./pretrain_models/wav2vec2-base-960h").to(device)
-    model = JointModel(audio_encoder, text_encoder, CrossTransformer(config).to(device))
+    model = JointModel(audio_encoder, text_encoder, config)
     torch.cuda.memory_summary(device)
     # load dummy dataset and read soundfiles
     print('begin to load data')
     # ds = load_dataset("patrickvonplaten/librispeech_asr_dummy", "clean", split="validation")
     ds = SequenceDataset(libri_root='F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech', bucket_dir='./dataset/data',
-                         bucket_file=['test-clean'], tokenizer=tokenizer, text_encoder=text_encoder)
+                         bucket_file=['test-clean'], tokenizer=tokenizer, text_encoder=text_encoder, config=config)
 
-    dataloader = torch.utils.data.DataLoader(ds, batch_size=2, num_workers=1, collate_fn=ds.collate_fn)
+    dataloader = torch.utils.data.DataLoader(ds, batch_size=4, num_workers=1, collate_fn=ds.collate_fn)
     es = EarlyStoppingCallback(early_stopping_patience=5)
     optimizer = AdamW(model.parameters(), lr=1e-5)
 
@@ -94,7 +96,10 @@ if __name__ == "__main__":
     # f = open(file, 'w')
     # f.write('begin to train model\n')
     print('begin to train model')
-    for epoch in range(2):
+    for epoch in range(10):
+        if epoch > 0:
+            ds.modal_mask=True
+        print('new epoch run, modal mask is {}'.format(ds.modal_mask))
         step = 1
         for batch in tqdm(dataloader):
             # f.write('begin to train step {}\n'.format(step))

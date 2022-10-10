@@ -35,9 +35,10 @@ HALF_BATCHSIZE_TIME = 2000
 ####################
 class SequenceDataset(Dataset):
 
-    def __init__(self, libri_root, bucket_dir, bucket_file, tokenizer, text_encoder):
+    def __init__(self, libri_root, bucket_dir, bucket_file, tokenizer, text_encoder, config):
         super(SequenceDataset, self).__init__()
 
+        self.config = config
         self.tokenizer = tokenizer
         self.text_encoder = text_encoder
         self.libri_root = libri_root
@@ -58,7 +59,7 @@ class SequenceDataset(Dataset):
         self.X_lens = table_list['length'].tolist()
 
         # Transcripts
-        Y = self._load_transcript(self.X)
+        Y = self.load_transcript(self.X)
 
         x_names = set([self._parse_x_name(x) for x in self.X])
         y_names = set(Y.keys())
@@ -67,7 +68,7 @@ class SequenceDataset(Dataset):
         Y = {key: Y[key] for key in usage_list}
 
         self.Y = Y
-
+        self.modal_mask = False
         # self.Y_t = {key : self.mask_out(self.Y[key], 0) for key in usage_list}
 
     def _parse_x_name(self, x):
@@ -78,7 +79,7 @@ class SequenceDataset(Dataset):
         assert sr == self.sample_rate, f'Sample rate mismatch: real {sr}, config {self.sample_rate}'
         return wav.view(-1)
 
-    def _load_transcript(self, x_list):
+    def load_transcript(self, x_list):
         """Load the transcripts for Librispeech"""
 
         def process_trans(transcript):
@@ -115,8 +116,6 @@ class SequenceDataset(Dataset):
         #     text_feat = self.text_encoder(**text_token).last_hidden_state
         #     text_feat = text_feat.squeeze()
         text_labels, mask_label, mask, label = self.mask_out(text_token['input_ids'], 0)
-        if text_labels is None:
-            return None
         text_token['input_ids'] = text_labels
         return text_token, mask_label, mask, label
 
@@ -127,9 +126,6 @@ class SequenceDataset(Dataset):
         audio_len = self.X_lens[index]
         text = self.Y[self._parse_x_name(file)]
         text_feat = self.encode_text(text)
-        if text_feat is None:
-            print('drop data index = {}, file is {}'.format(index, file))
-            return None
         text_len = len(text.split(' '))
         filename = Path(file).stem
         return {'wav': wav, 'text_feat': text_feat, 'text': text, 'audio_len': audio_len, 'text_len': text_len,'filename': filename}
@@ -150,32 +146,18 @@ class SequenceDataset(Dataset):
     def mask_out(self, x, lengths):
         """
         Decide of random words to mask out, and what target they get assigned.
+        input is [bs, seq_len]
         """
-        word_pred = 0.15
         fp16 = False
-        params = {'mask_index': 103}
-        sample_alpha = 0
         mask_index = 103
         bs, slen = x.size()
+        pred_mask = self.lm_mask(bs, slen)
+        if self.modal_mask:
+            if random.random() < 0.3:
+                pred_mask = self.modality_mask(bs, slen)
+
         word_mask, word_keep, word_rand = 0.8,0.1,0.1
         pred_probs = torch.FloatTensor([word_mask, word_keep, word_rand])
-
-        # define target words to predict
-        if sample_alpha == 0:
-            pred_mask = np.random.rand(bs, slen) <= word_pred
-            pred_mask = torch.from_numpy(pred_mask.astype(np.uint8))
-        else:
-            x_prob = params.mask_scores[x.flatten()]
-            n_tgt = math.ceil(params.word_pred * slen * bs)
-            tgt_ids = np.random.choice(len(x_prob), n_tgt, replace=False, p=x_prob / x_prob.sum())
-            pred_mask = torch.zeros(slen * bs, dtype=torch.uint8)
-            pred_mask[tgt_ids] = 1
-            pred_mask = pred_mask.view(slen, bs)
-
-        # do not predict padding
-        # 将batch padding的部分去掉不考虑
-        # pred_mask[x == params.pad_index] = 0
-        # pred_mask[0] = 0  # TODO: remove
 
         # mask a number of words == 0 [8] (faster with fp16)
         if fp16:
@@ -191,20 +173,29 @@ class SequenceDataset(Dataset):
         _x_real = x[pred_mask]
         _x_rand = _x_real.clone().random_(28996)
         _x_mask = _x_real.clone().fill_(mask_index)
-        try:
-            probs = torch.multinomial(pred_probs, len(_x_real), replacement=True)
-        except:
-            print('error happen in multinomial {}'.format(_x_real))
-            return None, None, None, None
+
+        if len(_x_real) == 0:
+            return x, _x_real, pred_mask, pred_mask
+        probs = torch.multinomial(pred_probs, len(_x_real), replacement=True)
         _x = _x_mask * (probs == 0).long() + _x_real * (probs == 1).long() + _x_rand * (probs == 2).long()
         x = x.masked_scatter(pred_mask, _x)
         label = torch.tensor(pred_mask.clone(), dtype=torch.int64)
-        label = label.masked_scatter(pred_mask, _x)
+        label = label.masked_scatter(pred_mask, _x_real)
         # assert 0 <= x.min() <= x.max() < params.n_words
         # assert x.size() == (slen, bs)
         # assert pred_mask.size() == (slen, bs)
 
         return x, _x_real, pred_mask, label
+
+    def modality_mask(self, bs, slen):
+        pred_mask = torch.ones(bs, slen, dtype=torch.uint8)
+        return pred_mask
+
+    def lm_mask(self, bs, slen):
+        word_pred = self.config.word_pred
+        pred_mask = np.random.rand(bs, slen) <= word_pred
+        pred_mask = torch.from_numpy(pred_mask.astype(np.uint8))
+        return pred_mask
 
 # def collate_fn(data):
 #     wavs = [d['wav'] for d in data]

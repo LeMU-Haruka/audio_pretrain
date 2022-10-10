@@ -2,6 +2,7 @@ from typing import Optional, Union, Tuple
 
 import torch
 import torch.nn as nn
+import numpy as np
 from torch.nn import CrossEntropyLoss
 from transformers.activations import ACT2FN
 from transformers.modeling_outputs import BaseModelOutput
@@ -34,8 +35,6 @@ class CrossTransformer(nn.Module):
 
 
 
-
-
 class TransformerDecoder(nn.Module):
 
     def __init__(self, config):
@@ -50,10 +49,16 @@ class TransformerDecoder(nn.Module):
         # TODO 只提取text部分的信息，注意非mask部分的label应该为-100，mask部分的label为真实label
         loss = 0
         for score, a_l, real in zip(prediction_scores, audio_length, x_real):
+            if not real.any():
+                continue
             mask_score = score[a_l:, :]
             if mask_score.shape[0] > real.shape[1]:
                 mask_score = mask_score[:real.shape[1], :]
-            loss += loss_fct(mask_score.view(-1, self.config.vocab_size), real.view(-1).to(mask_score.device))
+            temp_loss = loss_fct(mask_score.view(-1, self.config.vocab_size), real.view(-1).to(mask_score.device))
+            detect = temp_loss.cpu().detach().numpy()
+            if np.isnan(detect):
+                print('test')
+            loss += temp_loss
         return loss
 
 
