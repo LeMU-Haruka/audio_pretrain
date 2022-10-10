@@ -8,8 +8,7 @@ from transformers import EarlyStoppingCallback
 from torch.cuda.amp import autocast as autocast, GradScaler
 
 from dataset.LS_datasets import SequenceDataset
-from models.model import JointModel, MaxPoolFusion
-from models.transformer import CrossTransformer
+from models.model import JointModel
 
 
 import torch
@@ -90,9 +89,9 @@ if __name__ == "__main__":
     ds = SequenceDataset(libri_root='F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech', bucket_dir='./dataset/data',
                          bucket_file=['test-clean'], tokenizer=tokenizer, text_encoder=text_encoder, config=config)
 
-    dataloader = torch.utils.data.DataLoader(ds, batch_size=4, num_workers=1, collate_fn=ds.collate_fn)
+    dataloader = torch.utils.data.DataLoader(ds, batch_size=2, num_workers=2, collate_fn=ds.collate_fn)
     es = EarlyStoppingCallback(early_stopping_patience=5)
-    optimizer = AdamW(model.parameters(), lr=1e-5)
+    optimizer = AdamW(model.parameters(), lr=1e-6)
 
     # file = './log.txt'
     # f = open(file, 'w')
@@ -106,17 +105,27 @@ if __name__ == "__main__":
         print('new epoch run, modal mask is {}'.format(ds.modal_mask))
         step = 1
         for batch in tqdm(dataloader):
-            audio_input = batch['wav']
-            text_input = batch['text_feat']
-            loss = model(audio_input, text_input)
+            with autocast():
+                audio_input = batch['wav']
+                text_input = batch['text_feat']
+                loss = model(audio_input, text_input)
             print('step: {}, loss :{}'.format(step, loss))
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+
+            # 2、scaler.step()   再把梯度的值unscale回来.
+            # 如果梯度的值不是 infs 或者 NaNs, 那么调用optimizer.step()来更新权重,
+            # 否则，忽略step调用，从而保证权重不更新（不被破坏）
+            scaler.step(optimizer)
+
+            # 3、准备着，看是否要增大scaler
+            scaler.update()
+
+            # 正常更新权重
             optimizer.zero_grad()
             # scaler.scale(loss).backward()
             # scaler.step(optimizer)
             # scaler.update()
-            # torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
             step += 1
         # torch.save(model.state_dict(), 'model_{}.pt'.format(epoch))
         torch.save(model.audio_encoder.state_dict(), 'w2v_{}.pt'.format(epoch))

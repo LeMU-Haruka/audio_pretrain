@@ -55,9 +55,6 @@ class TransformerDecoder(nn.Module):
             if mask_score.shape[0] > real.shape[1]:
                 mask_score = mask_score[:real.shape[1], :]
             temp_loss = loss_fct(mask_score.view(-1, self.config.vocab_size), real.view(-1).to(mask_score.device))
-            detect = temp_loss.cpu().detach().numpy()
-            if np.isnan(detect):
-                print('test')
             loss += temp_loss
         return loss
 

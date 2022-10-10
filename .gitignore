@@ -135,4 +135,4 @@ dmypy.json
 pretrain_models/
 .pretrain_models
 .pretrain_models/
-*/pretrain_models/
+pretrain_models/
