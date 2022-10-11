@@ -30,6 +30,8 @@ config.hidden_act = 'relu'
 config.pad_index = 103
 config.word_pred = 0.15
 config.is_train_wav2vec=False
+config.batch_size = 4
+config.real_batch_size = 16
 
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
@@ -89,7 +91,7 @@ if __name__ == "__main__":
     ds = SequenceDataset(libri_root='F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech', bucket_dir='./dataset/data',
                          bucket_file=['test-clean'], tokenizer=tokenizer, text_encoder=text_encoder, config=config)
 
-    dataloader = torch.utils.data.DataLoader(ds, batch_size=2, num_workers=2, collate_fn=ds.collate_fn)
+    dataloader = torch.utils.data.DataLoader(ds, batch_size=config.batch_size, num_workers=2, collate_fn=ds.collate_fn)
     es = EarlyStoppingCallback(early_stopping_patience=5)
     optimizer = AdamW(model.parameters(), lr=1e-6)
 
@@ -98,6 +100,8 @@ if __name__ == "__main__":
     # f.write('begin to train model\n')
     scaler = GradScaler()
 
+    acc_step = config.real_batch_size / config.batch_size
+
     print('begin to train model')
     for epoch in range(10):
         if epoch > 0:
@@ -105,28 +109,17 @@ if __name__ == "__main__":
         print('new epoch run, modal mask is {}'.format(ds.modal_mask))
         step = 1
         for batch in tqdm(dataloader):
-            with autocast():
-                audio_input = batch['wav']
-                text_input = batch['text_feat']
-                loss = model(audio_input, text_input)
+            audio_input = batch['wav']
+            text_input = batch['text_feat']
+            loss = model(audio_input, text_input)
             print('step: {}, loss :{}'.format(step, loss))
-            scaler.scale(loss).backward()
+            loss = loss / acc_step
+            loss.backward()
 
-            # 2、scaler.step()   再把梯度的值unscale回来.
-            # 如果梯度的值不是 infs 或者 NaNs, 那么调用optimizer.step()来更新权重,
-            # 否则，忽略step调用，从而保证权重不更新（不被破坏）
-            scaler.step(optimizer)
+            if step % acc_step == 0:
+                optimizer.step()
+                optimizer.zero_grad()
 
-            # 3、准备着，看是否要增大scaler
-            scaler.update()
-
-            # 正常更新权重
-            optimizer.zero_grad()
-            # scaler.scale(loss).backward()
-            # scaler.step(optimizer)
-            # scaler.update()
-            torch.cuda.empty_cache()
-            step += 1
         # torch.save(model.state_dict(), 'model_{}.pt'.format(epoch))
         torch.save(model.audio_encoder.state_dict(), 'w2v_{}.pt'.format(epoch))
         torch.save(model.fusion.state_dict(), 'trans_{}.pt'.format(epoch))
