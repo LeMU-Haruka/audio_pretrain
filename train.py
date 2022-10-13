@@ -23,7 +23,7 @@ torch.cuda.manual_seed_all(seed)
 
 
 config = BartConfig()
-config.num_hidden_layers = 3
+config.num_hidden_layers = 1
 config.hidden_size = 768
 config.encoder_ffn_dim = 2048
 config.hidden_act = 'relu'
@@ -69,6 +69,13 @@ def compute_loss(input, target):
     return loss
 
 
+def bert_encode(encoder, text_input):
+    with torch.no_grad():
+        text_feat = [encoder(**val[0]).last_hidden_state for val in text_input]
+    real_label = [val[1] for val in text_input]
+    mask = [val[2] for val in text_input]
+    return text_feat, mask, real_label
+
 if __name__ == "__main__":
 
     args = {
@@ -83,7 +90,7 @@ if __name__ == "__main__":
     tokenizer = BertTokenizer.from_pretrained('./pretrain_models/bert-base-cased')
     # tokenizer.save_pretrained('./pretrain_models/bert-large-uncased')
     audio_encoder = Wav2Vec2Model.from_pretrained("./pretrain_models/wav2vec2-base-960h").to(device)
-    model = JointModel(audio_encoder, text_encoder, config)
+    model = JointModel(audio_encoder, config)
     torch.cuda.memory_summary(device)
     # load dummy dataset and read soundfiles
     print('begin to load data')
@@ -93,7 +100,7 @@ if __name__ == "__main__":
 
     dataloader = torch.utils.data.DataLoader(ds, batch_size=config.batch_size, num_workers=2, collate_fn=ds.collate_fn)
     es = EarlyStoppingCallback(early_stopping_patience=5)
-    optimizer = AdamW(model.parameters(), lr=1e-6)
+    optimizer = AdamW(model.parameters(), lr=1e-5)
 
     # file = './log.txt'
     # f = open(file, 'w')
@@ -110,12 +117,15 @@ if __name__ == "__main__":
         step = 1
         for batch in tqdm(dataloader):
             audio_input = batch['wav']
-            text_input = batch['text_feat']
-            loss = model(audio_input, text_input)
+            text_feature, mask, real_label = bert_encode(text_encoder, batch['text_feat'])
+
+            loss = model(audio_input, text_feature, mask, real_label)
+
             print('step: {}, loss :{}'.format(step, loss))
             loss = loss / acc_step
             loss.backward()
 
+            # 梯度累加
             if step % acc_step == 0:
                 optimizer.step()
                 optimizer.zero_grad()

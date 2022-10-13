@@ -26,37 +26,10 @@ class CrossTransformer(nn.Module):
         super(CrossTransformer, self).__init__()
         self.config = config
         self.encoder = TransformerEncoder(config)
-        self.decoder = TransformerDecoder(config)
 
-    def forward(self, x, audio_length, mask_index, x_real):
+    def forward(self, x):
         x = self.encoder(x).last_hidden_state
-        loss = self.decoder(x, audio_length, mask_index, x_real)
-        return loss
-
-
-
-class TransformerDecoder(nn.Module):
-
-    def __init__(self, config):
-        super(TransformerDecoder, self).__init__()
-        self.config = config
-        self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=True)
-        self.gradient_checkpointing = False
-
-    def forward(self, x, audio_length, mask_index, x_real):
-        prediction_scores = self.decoder(x)
-        loss_fct = CrossEntropyLoss(ignore_index=0)
-        # TODO 只提取text部分的信息，注意非mask部分的label应该为-100，mask部分的label为真实label
-        loss = 0
-        for score, a_l, real in zip(prediction_scores, audio_length, x_real):
-            if not real.any():
-                continue
-            mask_score = score[a_l:, :]
-            if mask_score.shape[0] > real.shape[1]:
-                mask_score = mask_score[:real.shape[1], :]
-            temp_loss = loss_fct(mask_score.view(-1, self.config.vocab_size), real.view(-1).to(mask_score.device))
-            loss += temp_loss
-        return loss
+        return x
 
 
 class TransformerEncoder(nn.Module):

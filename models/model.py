@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 import math
+
+from torch.nn import CrossEntropyLoss
 from torch.nn.utils.rnn import pad_sequence
 from transformers.models.bart.modeling_bart import BartAttention
 from transformers.models.wav2vec2.modeling_wav2vec2 import Wav2Vec2PositionalConvEmbedding
@@ -36,32 +38,60 @@ class MaxPoolFusion(nn.Module):
         return self.loss(audio_pool, text_pool), audio_pool, text_pool
 
 
+
 class JointModel(nn.Module):
 
-    def __init__(self, audio_encoder, text_encoder, config):
+    def __init__(self, audio_encoder, config):
         super(JointModel, self).__init__()
         self.config = config
         self.audio_encoder = audio_encoder
-        self.text_encoder = text_encoder
+        self.audio_encoder.freeze_feature_extractor()
         self.fusion = CrossTransformer(config).to(config.device)
+        self.prediction = PredictionModel(config).to(config.device)
 
-    def forward(self, audio, text):
+    def forward(self, audio, text_feat, label, mask_index):
+        x, audio_len = self.encode_features(audio, text_feat)
+        loss = self.prediction(x, audio_len, mask_index, label)
+        return loss
+
+    def encode_features(self, audio, text):
         if self.config.is_train_wav2vec:
             audio_feat = [self.audio_encoder(val.to(self.audio_encoder.device)).last_hidden_state for val in audio]
         else:
             with torch.no_grad():
                 audio_feat = [self.audio_encoder(val.to(self.audio_encoder.device)).last_hidden_state for val in audio]
 
-        with torch.no_grad():
-            text_feat = [self.text_encoder(**val[0]).last_hidden_state for val in text]
-        features = [torch.cat([a.squeeze(), t.squeeze().to(self.audio_encoder.device)], 0) for a, t in zip(audio_feat, text_feat)]
-        audio_len = [val.shape[1] for val in audio_feat]
-        real_label = [val[1] for val in text]
-        mask_index = [val[2] for val in text]
-        label = [val[3] for val in text]
+        features = [torch.cat([a.squeeze(), t.squeeze().to(a.device)], 0) for a, t in
+                        zip(audio_feat, text)]
         features = pad_sequence(features).transpose(0, 1)
-        loss = self.fusion(features, audio_len, mask_index, label)
+        audio_len = [val.shape[1] for val in audio_feat]
+        features = self.fusion(features)
+        return features, audio_len
+
+
+class PredictionModel(nn.Module):
+
+    def __init__(self, config):
+        super(PredictionModel, self).__init__()
+        self.config = config
+        self.decoder = nn.Linear(config.hidden_size, config.vocab_size, bias=True)
+        self.gradient_checkpointing = False
+
+    def forward(self, x, audio_length, mask_index, x_real):
+        prediction_scores = self.decoder(x)
+        loss_fct = CrossEntropyLoss(ignore_index=0)
+        # TODO 只提取text部分的信息，注意非mask部分的label应该为-100，mask部分的label为真实label
+        loss = 0
+        for score, a_l, real in zip(prediction_scores, audio_length, x_real):
+            if not real.any():
+                continue
+            mask_score = score[a_l:, :]
+            if mask_score.shape[0] > real.shape[1]:
+                mask_score = mask_score[:real.shape[1], :]
+            temp_loss = loss_fct(mask_score.view(-1, self.config.vocab_size), real.view(-1).to(mask_score.device))
+            loss += temp_loss
         return loss
+
 
 
     def mask_out(self, x, lengths):
