@@ -115,20 +115,24 @@ if __name__ == "__main__":
             ds.modal_mask=True
         print('new epoch run, modal mask is {}'.format(ds.modal_mask))
         step = 1
+        print_loss = 0
         for batch in tqdm(dataloader):
             audio_input = batch['wav']
             text_feature, mask, real_label = bert_encode(text_encoder, batch['text_feat'])
 
             loss = model(audio_input, text_feature, mask, real_label)
 
-            print('step: {}, loss :{}'.format(step, loss))
             loss = loss / acc_step
+            print_loss += loss
             loss.backward()
 
             # 梯度累加
             if step % acc_step == 0:
+                print('step: {}, loss :{}'.format(step, print_loss))
+                print_loss = 0
                 optimizer.step()
                 optimizer.zero_grad()
+            step += 1
 
         # torch.save(model.state_dict(), 'model_{}.pt'.format(epoch))
         torch.save(model.audio_encoder.state_dict(), 'w2v_{}.pt'.format(epoch))
