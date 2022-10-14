@@ -6,6 +6,7 @@ import math
 
 from torch.nn import CrossEntropyLoss
 from torch.nn.utils.rnn import pad_sequence
+from torchaudio.models import Wav2Vec2Model
 from transformers.models.bart.modeling_bart import BartAttention
 from transformers.models.wav2vec2.modeling_wav2vec2 import Wav2Vec2PositionalConvEmbedding
 
@@ -38,21 +39,18 @@ class MaxPoolFusion(nn.Module):
         return self.loss(audio_pool, text_pool), audio_pool, text_pool
 
 
+class FeatureFusionModel(nn.Module):
 
-class JointModel(nn.Module):
-
-    def __init__(self, audio_encoder, config):
-        super(JointModel, self).__init__()
+    def __init__(self, config):
+        super(FeatureFusionModel, self).__init__()
         self.config = config
-        self.audio_encoder = audio_encoder
+        self.audio_encoder = Wav2Vec2Model.from_pretrained(config.wav2vec_dir).to(config.device)
         self.audio_encoder.freeze_feature_extractor()
         self.fusion = CrossTransformer(config).to(config.device)
-        self.prediction = PredictionModel(config).to(config.device)
 
-    def forward(self, audio, text_feat, label, mask_index):
-        x, audio_len = self.encode_features(audio, text_feat)
-        loss = self.prediction(x, audio_len, mask_index, label)
-        return loss
+    def forward(self, audio, text):
+        fusion_feat = self.encode_features(audio, text)
+        return fusion_feat
 
     def encode_features(self, audio, text):
         if self.config.is_train_wav2vec:
@@ -62,11 +60,25 @@ class JointModel(nn.Module):
                 audio_feat = [self.audio_encoder(val.to(self.audio_encoder.device)).last_hidden_state for val in audio]
 
         features = [torch.cat([a.squeeze(), t.squeeze().to(a.device)], 0) for a, t in
-                        zip(audio_feat, text)]
+                    zip(audio_feat, text)]
         features = pad_sequence(features).transpose(0, 1)
         audio_len = [val.shape[1] for val in audio_feat]
         features = self.fusion(features)
         return features, audio_len
+
+
+class JointModel(nn.Module):
+
+    def __init__(self, config):
+        super(JointModel, self).__init__()
+        self.config = config
+        self.encoder = FeatureFusionModel(config).to(config.device)
+        self.prediction = PredictionModel(config).to(config.device)
+
+    def forward(self, audio, text_feat, label, mask_index):
+        x, audio_len = self.encoder(audio, text_feat)
+        loss = self.prediction(x, audio_len, mask_index, label)
+        return loss
 
 
 class PredictionModel(nn.Module):
@@ -91,8 +103,6 @@ class PredictionModel(nn.Module):
             temp_loss = loss_fct(mask_score.view(-1, self.config.vocab_size), real.view(-1).to(mask_score.device))
             loss += temp_loss
         return loss
-
-
 
     def mask_out(self, x, lengths):
         """

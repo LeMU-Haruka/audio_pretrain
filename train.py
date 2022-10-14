@@ -32,6 +32,8 @@ config.word_pred = 0.15
 config.is_train_wav2vec=False
 config.batch_size = 4
 config.real_batch_size = 16
+config.wav2vec_dir='./pretrain_models/wav2vec2-base-960h'
+
 
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
@@ -89,8 +91,8 @@ if __name__ == "__main__":
     text_encoder = BertModel.from_pretrained('./pretrain_models/bert-base-cased')
     tokenizer = BertTokenizer.from_pretrained('./pretrain_models/bert-base-cased')
     # tokenizer.save_pretrained('./pretrain_models/bert-large-uncased')
-    audio_encoder = Wav2Vec2Model.from_pretrained("./pretrain_models/wav2vec2-base-960h").to(device)
-    model = JointModel(audio_encoder, config)
+    # audio_encoder = Wav2Vec2Model.from_pretrained("./pretrain_models/wav2vec2-base-960h").to(device)
+    model = JointModel(config)
     torch.cuda.memory_summary(device)
     # load dummy dataset and read soundfiles
     print('begin to load data')
@@ -135,8 +137,8 @@ if __name__ == "__main__":
             step += 1
 
         # torch.save(model.state_dict(), 'model_{}.pt'.format(epoch))
-        torch.save(model.audio_encoder.state_dict(), 'w2v_{}.pt'.format(epoch))
-        torch.save(model.fusion.state_dict(), 'trans_{}.pt'.format(epoch))
-        print('epoch {} finished, save model: model_{}.pt'.format(epoch, epoch))
+        torch.save(model.encoder.state_dict(), 'fusion_{}.pt'.format(epoch))
+        # torch.save(model.fusion.state_dict(), 'trans_{}.pt'.format(epoch))
+        print('epoch {} finished, save model: fusion_{}.pt'.format(epoch, epoch))
         torch.cuda.empty_cache()
     # f.close()
