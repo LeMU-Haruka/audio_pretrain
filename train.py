@@ -30,6 +30,7 @@ config.hidden_act = 'relu'
 config.pad_index = 103
 config.word_pred = 0.15
 config.is_train_wav2vec=False
+config.epoch=4
 config.batch_size = 4
 config.real_batch_size = 16
 config.wav2vec_dir='./pretrain_models/wav2vec2-base-960h'
@@ -112,7 +113,7 @@ if __name__ == "__main__":
     acc_step = config.real_batch_size / config.batch_size
 
     print('begin to train model')
-    for epoch in range(10):
+    for epoch in range(config.epoch):
         if epoch > 0:
             ds.modal_mask=True
         print('new epoch run, modal mask is {}'.format(ds.modal_mask))

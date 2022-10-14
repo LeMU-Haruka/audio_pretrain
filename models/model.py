@@ -6,9 +6,7 @@ import math
 
 from torch.nn import CrossEntropyLoss
 from torch.nn.utils.rnn import pad_sequence
-from torchaudio.models import Wav2Vec2Model
-from transformers.models.bart.modeling_bart import BartAttention
-from transformers.models.wav2vec2.modeling_wav2vec2 import Wav2Vec2PositionalConvEmbedding
+from transformers import Wav2Vec2Model
 
 from models.transformer import CrossTransformer
 
