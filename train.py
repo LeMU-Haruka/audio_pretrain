@@ -23,16 +23,21 @@ torch.cuda.manual_seed_all(seed)
 
 
 config = BartConfig()
-config.num_hidden_layers = 1
+config.num_hidden_layers = 6
 config.hidden_size = 768
 config.encoder_ffn_dim = 2048
 config.hidden_act = 'relu'
 config.pad_index = 103
 config.word_pred = 0.15
 config.is_train_wav2vec=False
-config.batch_size = 4
+config.batch_size = 2
 config.real_batch_size = 16
+config.output_path='./output/'
 config.wav2vec_dir='./pretrain_models/wav2vec2-base-960h'
+# For yunnao
+config.librispeech_path='/userhome/dataset/librispeech/LibriSpeech'
+# for PC
+config.librispeech_path='F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech'
 
 
 def compute_metrics(eval_pred):
@@ -74,7 +79,7 @@ def compute_loss(input, target):
 def bert_encode(encoder, text_input):
     with torch.no_grad():
         text_feat = [encoder(**val[0]).last_hidden_state for val in text_input]
-    real_label = [val[1] for val in text_input]
+    real_label = [val[4] for val in text_input]
     mask = [val[2] for val in text_input]
     return text_feat, mask, real_label
 
@@ -90,19 +95,19 @@ if __name__ == "__main__":
     config.device = device
     text_encoder = BertModel.from_pretrained('./pretrain_models/bert-base-cased')
     tokenizer = BertTokenizer.from_pretrained('./pretrain_models/bert-base-cased')
+    config.vocab_size = tokenizer.vocab_size
     # tokenizer.save_pretrained('./pretrain_models/bert-large-uncased')
     # audio_encoder = Wav2Vec2Model.from_pretrained("./pretrain_models/wav2vec2-base-960h").to(device)
     model = JointModel(config)
-    torch.cuda.memory_summary(device)
     # load dummy dataset and read soundfiles
     print('begin to load data')
     # ds = load_dataset("patrickvonplaten/librispeech_asr_dummy", "clean", split="validation")
-    ds = SequenceDataset(libri_root='F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech', bucket_dir='./dataset/data',
+    ds = SequenceDataset(libri_root=config.librispeech_path, bucket_dir='./dataset/data',
                          bucket_file=['test-clean'], tokenizer=tokenizer, text_encoder=text_encoder, config=config)
 
     dataloader = torch.utils.data.DataLoader(ds, batch_size=config.batch_size, num_workers=2, collate_fn=ds.collate_fn)
     es = EarlyStoppingCallback(early_stopping_patience=5)
-    optimizer = AdamW(model.parameters(), lr=1e-5)
+    optimizer = AdamW(model.parameters(), lr=1e-6)
 
     # file = './log.txt'
     # f = open(file, 'w')
@@ -112,6 +117,7 @@ if __name__ == "__main__":
     acc_step = config.real_batch_size / config.batch_size
 
     print('begin to train model')
+    print('is_train_wav2vec is {}'.format(config.is_train_wav2vec))
     for epoch in range(10):
         if epoch > 0:
             ds.modal_mask=True
@@ -137,8 +143,8 @@ if __name__ == "__main__":
             step += 1
 
         # torch.save(model.state_dict(), 'model_{}.pt'.format(epoch))
-        torch.save(model.encoder.state_dict(), 'fusion_{}.pt'.format(epoch))
+        torch.save(model.encoder.state_dict(), 'fusion_{}.ckpt'.format(epoch))
         # torch.save(model.fusion.state_dict(), 'trans_{}.pt'.format(epoch))
-        print('epoch {} finished, save model: fusion_{}.pt'.format(epoch, epoch))
+        print('epoch {} finished, save model: fusion_{}.ckpt'.format(epoch, epoch))
         torch.cuda.empty_cache()
     # f.close()
