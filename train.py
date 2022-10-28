@@ -20,7 +20,6 @@ torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
 
-
 config = BartConfig()
 config.num_hidden_layers = 6
 config.hidden_size = 768
@@ -28,15 +27,16 @@ config.encoder_ffn_dim = 2048
 config.hidden_act = 'relu'
 config.pad_index = 103
 config.word_pred = 0.15
-config.is_train_wav2vec=False
+config.is_train_wav2vec = False
 config.batch_size = 2
 config.real_batch_size = 16
-config.output_path='./output/'
-config.wav2vec_dir='./pretrain_models/wav2vec2-base-960h'
+config.output_path = './output/'
+config.bucket_dir = './dataset/data'
+config.wav2vec_dir = './pretrain_models/wav2vec2-base-960h'
 # For yunnao
-config.librispeech_path='/userhome/dataset/librispeech/LibriSpeech'
+config.librispeech_path = '/userhome/dataset/librispeech/LibriSpeech'
 # for PC
-config.librispeech_path='F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech'
+config.librispeech_path = 'D:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech'
 
 
 def compute_metrics(eval_pred):
@@ -47,6 +47,7 @@ def compute_metrics(eval_pred):
         'pearson': np.corrcoef(predictions, labels)[0][1]
     }
 
+
 def compute_loss(input, target):
     loss_fn = nn.MSELoss()
     loss = loss_fn(input, target)
@@ -56,9 +57,10 @@ def compute_loss(input, target):
 def bert_encode(encoder, text_input):
     with torch.no_grad():
         text_feat = [encoder(**val[0]).last_hidden_state for val in text_input]
-    real_label = [val[3] for val in text_input]
+    real = [val[3] for val in text_input]
     mask = [val[2] for val in text_input]
-    return text_feat, mask, real_label
+    return text_feat, mask, real
+
 
 if __name__ == "__main__":
 
@@ -67,15 +69,15 @@ if __name__ == "__main__":
     text_encoder = BertModel.from_pretrained('./pretrain_models/bert-base-cased')
     tokenizer = BertTokenizer.from_pretrained('./pretrain_models/bert-base-cased')
     config.vocab_size = tokenizer.vocab_size
-    # tokenizer.save_pretrained('./pretrain_models/bert-large-uncased')
-    # audio_encoder = Wav2Vec2Model.from_pretrained("./pretrain_models/wav2vec2-base-960h").to(device)
+
     model = JointModel(config)
-    # init prediction weight with bert embedding
+    # init prediction layer weight with bert embedding
     # model.update_pred_weight(text_encoder.embeddings.word_embeddings)
+
     # load dummy dataset and read soundfiles
     print('begin to load data')
     # ds = load_dataset("patrickvonplaten/librispeech_asr_dummy", "clean", split="validation")
-    ds = SequenceDataset(libri_root=config.librispeech_path, bucket_dir='./dataset/data',
+    ds = SequenceDataset(libri_root=config.librispeech_path, bucket_dir=config.bucket_dir,
                          bucket_file=['test-clean'], tokenizer=tokenizer, text_encoder=text_encoder, config=config)
 
     dataloader = torch.utils.data.DataLoader(ds, batch_size=config.batch_size, num_workers=2, collate_fn=ds.collate_fn)
@@ -94,7 +96,7 @@ if __name__ == "__main__":
     print('is_train_wav2vec is {}'.format(config.is_train_wav2vec))
     for epoch in range(10):
         if epoch > 0:
-            ds.modal_mask=True
+            ds.modal_mask = True
         print('new epoch run, modal mask is {}'.format(ds.modal_mask))
         step = 1
         print_loss = 0
