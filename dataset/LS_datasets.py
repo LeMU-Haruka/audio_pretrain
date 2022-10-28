@@ -115,9 +115,9 @@ class SequenceDataset(Dataset):
         # with torch.no_grad():
         #     text_feat = self.text_encoder(**text_token).last_hidden_state
         #     text_feat = text_feat.squeeze()
-        text_labels, mask_label, mask, label = self.mask_out(text_token['input_ids'], 0)
+        text_labels, mask_label, mask, label, real = self.mask_out(text_token['input_ids'])
         text_token['input_ids'] = text_labels
-        return text_token, mask_label, mask, label
+        return text_token, mask_label, mask, label, real
 
     def __getitem__(self, index):
         # Load acoustic feature and pad
@@ -143,11 +143,12 @@ class SequenceDataset(Dataset):
         return {'wav': wav_batch, 'text_feat': text_batch,
                 'text': text, 'audio_len': audio_len, 'text_len': text_len,'filename': filename}
 
-    def mask_out(self, x, lengths):
+    def mask_out(self, x):
         """
         Decide of random words to mask out, and what target they get assigned.
         input is [bs, seq_len]
         """
+        origin = x.clone()
         fp16 = False
         mask_index = 103
         bs, slen = x.size()
@@ -171,11 +172,11 @@ class SequenceDataset(Dataset):
 
         # generate possible targets / update x input
         _x_real = x[pred_mask]
-        _x_rand = _x_real.clone().random_(28996)
+        _x_rand = _x_real.clone().random_(self.config.vocab_size)
         _x_mask = _x_real.clone().fill_(mask_index)
 
         if len(_x_real) == 0:
-            return x, _x_real, pred_mask, pred_mask
+            return x, _x_real, pred_mask, pred_mask, origin
         probs = torch.multinomial(pred_probs, len(_x_real), replacement=True)
         _x = _x_mask * (probs == 0).long() + _x_real * (probs == 1).long() + _x_rand * (probs == 2).long()
         x = x.masked_scatter(pred_mask, _x)
@@ -185,7 +186,7 @@ class SequenceDataset(Dataset):
         # assert x.size() == (slen, bs)
         # assert pred_mask.size() == (slen, bs)
 
-        return x, _x_real, pred_mask, label
+        return x, _x_real, pred_mask, label, origin
 
     def modality_mask(self, bs, slen):
         pred_mask = torch.ones(bs, slen, dtype=torch.uint8)
@@ -196,26 +197,3 @@ class SequenceDataset(Dataset):
         pred_mask = np.random.rand(bs, slen) <= word_pred
         pred_mask = torch.from_numpy(pred_mask.astype(np.uint8))
         return pred_mask
-
-# def collate_fn(data):
-#     wavs = [d['wav'] for d in data]
-#     text = [d['text'] for d in data]
-#     length = [d['length'] for d in data]
-#     filename = [d['filename'] for d in data]
-#     wavs_batch = [torch.Tensor(np.array(feat)).squeeze() for feat in wavs]
-#     wavs_batch = torch.nn.utils.rnn.pad_sequence(wavs_batch)
-#     return {'wav': wavs_batch,
-#             'text': text,
-#             'length': length,
-#             'filename': filename}
-
-
-# dataset = SequenceDataset('F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech', './data/test-clean.csv')
-#
-# dataloader = torch.utils.data.DataLoader(dataset, batch_size=5, collate_fn=collate_fn)
-#
-#
-# for item in dataloader:
-#     print('done')
-#
-# print('done')
