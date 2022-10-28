@@ -10,7 +10,6 @@ from torch.cuda.amp import autocast as autocast, GradScaler
 from dataset.LS_datasets import SequenceDataset
 from models.model import JointModel
 
-
 import torch
 import torch.nn as nn
 import numpy as np
@@ -48,28 +47,6 @@ def compute_metrics(eval_pred):
         'pearson': np.corrcoef(predictions, labels)[0][1]
     }
 
-
-def data_collate(batch):
-    audio = [val['audio']['array'] for val in batch]
-    text = [val['text'] for val in batch]
-    processor = Wav2Vec2Processor.from_pretrained("./pretrain_models/wav2vec2-base-960h")
-    tokenizer = BertTokenizer.from_pretrained('./pretrain_models/bert-base-cased')
-    audio_feat = processor(audio, return_tensors="pt", padding="longest").input_values
-    text_ids = []
-    token_ids = []
-    attn_mask = []
-    for val in text:
-        text_feat = tokenizer(val, return_tensors='pt')
-        text_ids.append(text_feat['input_ids'].squeeze())
-        token_ids.append(text_feat['token_type_ids'].squeeze())
-        attn_mask.append(text_feat['attention_mask'].squeeze())
-
-    text_ids_feat = pad_sequence(text_ids).T
-    token_ids_feat = pad_sequence(token_ids).T
-    attn_mask_feat = pad_sequence(attn_mask).T
-    return {'audio': audio_feat, 'text_ids': text_ids_feat, 'token_ids': token_ids_feat, 'attn_mask': attn_mask_feat}
-
-
 def compute_loss(input, target):
     loss_fn = nn.MSELoss()
     loss = loss_fn(input, target)
@@ -79,17 +56,11 @@ def compute_loss(input, target):
 def bert_encode(encoder, text_input):
     with torch.no_grad():
         text_feat = [encoder(**val[0]).last_hidden_state for val in text_input]
-    real_label = [val[4] for val in text_input]
+    real_label = [val[3] for val in text_input]
     mask = [val[2] for val in text_input]
     return text_feat, mask, real_label
 
 if __name__ == "__main__":
-
-    args = {
-        'test-clean': ['test-clean'],
-        'bucket_size': 10,
-        'bucket_file': './dataset/data'
-    }
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     config.device = device
@@ -99,6 +70,8 @@ if __name__ == "__main__":
     # tokenizer.save_pretrained('./pretrain_models/bert-large-uncased')
     # audio_encoder = Wav2Vec2Model.from_pretrained("./pretrain_models/wav2vec2-base-960h").to(device)
     model = JointModel(config)
+    # init prediction weight with bert embedding
+    # model.update_pred_weight(text_encoder.embeddings.word_embeddings)
     # load dummy dataset and read soundfiles
     print('begin to load data')
     # ds = load_dataset("patrickvonplaten/librispeech_asr_dummy", "clean", split="validation")
@@ -109,6 +82,7 @@ if __name__ == "__main__":
     es = EarlyStoppingCallback(early_stopping_patience=5)
     optimizer = AdamW(model.parameters(), lr=1e-6)
 
+    step_size = len(dataloader)
     # file = './log.txt'
     # f = open(file, 'w')
     # f.write('begin to train model\n')
@@ -116,7 +90,7 @@ if __name__ == "__main__":
 
     acc_step = config.real_batch_size / config.batch_size
 
-    print('begin to train model')
+    print('begin to train model, total step is {}'.format(step_size))
     print('is_train_wav2vec is {}'.format(config.is_train_wav2vec))
     for epoch in range(10):
         if epoch > 0:
@@ -124,7 +98,7 @@ if __name__ == "__main__":
         print('new epoch run, modal mask is {}'.format(ds.modal_mask))
         step = 1
         print_loss = 0
-        for batch in tqdm(dataloader):
+        for batch in dataloader:
             audio_input = batch['wav']
             text_feature, mask, real_label = bert_encode(text_encoder, batch['text_feat'])
 
@@ -136,7 +110,7 @@ if __name__ == "__main__":
 
             # 梯度累加
             if step % acc_step == 0:
-                print('step: {}, loss :{}'.format(step, print_loss))
+                print('step: [{} / {}], loss :{}'.format(step, step_size, print_loss))
                 print_loss = 0
                 optimizer.step()
                 optimizer.zero_grad()

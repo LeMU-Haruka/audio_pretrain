@@ -79,6 +79,10 @@ class JointModel(nn.Module):
         loss = self.prediction(x, audio_len, label, mask_index)
         return loss
 
+    def update_pred_weight(self, embedding):
+        weight = embedding.weight
+        self.prediction.decoder.weight = weight
+
 class BertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -119,7 +123,7 @@ class PredictionModel(nn.Module):
             mask_score = score[a_l:, :]
             if mask_score.shape[0] > real.shape[1]:
                 mask_score = mask_score[:real.shape[1], :]
-            if self.counter % 10000 == 0:
+            if self.counter % 3000 == 0:
                 temp = nn.functional.softmax(mask_score.view(-1, self.config.vocab_size))
                 index = torch.argmax(temp, 1)
                 print('Compare decoder {} and real {}'.format(index, real))

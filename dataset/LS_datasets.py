@@ -197,26 +197,3 @@ class SequenceDataset(Dataset):
         pred_mask = np.random.rand(bs, slen) <= word_pred
         pred_mask = torch.from_numpy(pred_mask.astype(np.uint8))
         return pred_mask
-
-# def collate_fn(data):
-#     wavs = [d['wav'] for d in data]
-#     text = [d['text'] for d in data]
-#     length = [d['length'] for d in data]
-#     filename = [d['filename'] for d in data]
-#     wavs_batch = [torch.Tensor(np.array(feat)).squeeze() for feat in wavs]
-#     wavs_batch = torch.nn.utils.rnn.pad_sequence(wavs_batch)
-#     return {'wav': wavs_batch,
-#             'text': text,
-#             'length': length,
-#             'filename': filename}
-
-
-# dataset = SequenceDataset('F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech', './data/test-clean.csv')
-#
-# dataloader = torch.utils.data.DataLoader(dataset, batch_size=5, collate_fn=collate_fn)
-#
-#
-# for item in dataloader:
-#     print('done')
-#
-# print('done')
