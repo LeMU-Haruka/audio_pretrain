@@ -1,3 +1,5 @@
+import os.path
+
 from torch import Tensor, autograd
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
@@ -119,7 +121,7 @@ if __name__ == "__main__":
             step += 1
 
         # torch.save(model.state_dict(), 'model_{}.pt'.format(epoch))
-        torch.save(model.encoder.state_dict(), 'fusion_{}.ckpt'.format(epoch))
+        torch.save(model.encoder.state_dict(), os.path.join(config.output_path, 'fusion_{}.ckpt'.format(epoch)))
         # torch.save(model.fusion.state_dict(), 'trans_{}.pt'.format(epoch))
         print('epoch {} finished, save model: fusion_{}.ckpt'.format(epoch, epoch))
         torch.cuda.empty_cache()
