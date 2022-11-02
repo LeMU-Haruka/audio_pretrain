@@ -12,6 +12,7 @@ from torch.cuda.amp import autocast as autocast, GradScaler
 from dataset.LS_datasets import SequenceDataset
 from models.model import JointModel
 
+import os
 import torch
 import torch.nn as nn
 import numpy as np
@@ -23,9 +24,9 @@ torch.cuda.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
 
 config = BartConfig()
-config.num_hidden_layers = 6
+config.num_hidden_layers = 12
 config.hidden_size = 768
-config.encoder_ffn_dim = 2048
+config.encoder_ffn_dim = 3072
 config.hidden_act = 'relu'
 config.pad_index = 103
 config.word_pred = 0.15
@@ -50,12 +51,6 @@ def compute_metrics(eval_pred):
     }
 
 
-def compute_loss(input, target):
-    loss_fn = nn.MSELoss()
-    loss = loss_fn(input, target)
-    return loss
-
-
 def bert_encode(encoder, text_input):
     with torch.no_grad():
         text_feat = [encoder(**val[0]).last_hidden_state for val in text_input]
@@ -65,7 +60,8 @@ def bert_encode(encoder, text_input):
 
 
 if __name__ == "__main__":
-
+    if not os.path.exists(config.output_path):
+        os.makedirs(config.output_path)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     config.device = device
     text_encoder = BertModel.from_pretrained('./pretrain_models/bert-base-cased')

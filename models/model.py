@@ -80,6 +80,7 @@ class JointModel(nn.Module):
         weight = embedding.weight
         self.prediction.decoder.weight = weight
 
+
 class BertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -95,6 +96,7 @@ class BertPredictionHeadTransform(nn.Module):
         hidden_states = self.transform_act_fn(hidden_states)
         hidden_states = self.LayerNorm(hidden_states)
         return hidden_states
+
 
 class PredictionModel(nn.Module):
 
