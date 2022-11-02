@@ -39,7 +39,7 @@ config.wav2vec_dir = './pretrain_models/wav2vec2-base-960h'
 # For yunnao
 config.librispeech_path = '/userhome/dataset/librispeech/LibriSpeech'
 # for PC
-config.librispeech_path = 'D:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech'
+config.librispeech_path = 'F:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech'
 
 
 def compute_metrics(eval_pred):
@@ -51,12 +51,10 @@ def compute_metrics(eval_pred):
     }
 
 
-def bert_encode(encoder, text_input):
-    with torch.no_grad():
-        text_feat = [encoder(**val[0]).last_hidden_state for val in text_input]
+def bert_encode(text_input):
     real = [val[3] for val in text_input]
     mask = [val[2] for val in text_input]
-    return text_feat, mask, real
+    return mask, real
 
 
 if __name__ == "__main__":
@@ -100,9 +98,11 @@ if __name__ == "__main__":
         print_loss = 0
         for batch in dataloader:
             audio_input = batch['wav']
-            text_feature, mask, real_label = bert_encode(text_encoder, batch['text_feat'])
+            real = [val[3] for val in batch['text_feat']]
+            mask = [val[2] for val in batch['text_feat']]
 
-            loss = model(audio_input, text_feature, mask, real_label)
+
+            loss = model(audio_input, mask, real)
 
             loss = loss / acc_step
             print_loss += loss

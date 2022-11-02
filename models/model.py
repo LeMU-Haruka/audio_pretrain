@@ -44,19 +44,18 @@ class FeatureFusionModel(nn.Module):
         self.audio_encoder.freeze_feature_extractor()
         self.fusion = CrossTransformer(config).to(config.device)
 
-    def forward(self, audio, text):
-        fusion_feat = self.encode_features(audio, text)
+    def forward(self, audio):
+        fusion_feat = self.encode_features(audio)
         return fusion_feat
 
-    def encode_features(self, audio, text):
+    def encode_features(self, audio):
         if self.config.is_train_wav2vec:
             audio_feat = [self.audio_encoder(val.to(self.audio_encoder.device)).last_hidden_state for val in audio]
         else:
             with torch.no_grad():
                 audio_feat = [self.audio_encoder(val.to(self.audio_encoder.device)).last_hidden_state for val in audio]
 
-        features = [torch.cat([a.squeeze(), t.squeeze().to(a.device)], 0) for a, t in
-                    zip(audio_feat, text)]
+        features = [a.squeeze() for a in audio_feat]
         features = pad_sequence(features).transpose(0, 1)
         audio_len = [val.shape[1] for val in audio_feat]
         features = self.fusion(features)
@@ -71,8 +70,8 @@ class JointModel(nn.Module):
         self.encoder = FeatureFusionModel(config).to(config.device)
         self.prediction = PredictionModel(config).to(config.device)
 
-    def forward(self, audio, text_feat, label, mask_index):
-        x, audio_len = self.encoder(audio, text_feat)
+    def forward(self, audio, label, mask_index):
+        x, audio_len = self.encoder(audio)
         loss = self.prediction(x, audio_len, label, mask_index)
         return loss
 
