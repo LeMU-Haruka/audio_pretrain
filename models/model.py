@@ -123,11 +123,13 @@ class PredictionModel(nn.Module):
             if mask_score.shape[0] > real.shape[1]:
                 mask_score = mask_score[:real.shape[1], :]
             if self.counter % 3000 == 0:
+                self.counter = 0
                 temp = nn.functional.softmax(mask_score.view(-1, self.config.vocab_size))
                 index = torch.argmax(temp, 1)
                 print('Compare decoder {} and real {}'.format(index, real))
             temp_loss = loss_fct(mask_score.view(-1, self.config.vocab_size), real.view(-1).to(mask_score.device))
             loss += temp_loss
+            self.counter += 1
         return loss
     #
     # def mask_out(self, x):
