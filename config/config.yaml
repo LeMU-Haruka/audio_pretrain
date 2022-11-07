@@ -1,0 +1,20 @@
+# model
+num_hidden_layers: 12
+hidden_size: 768
+encoder_ffn_dim: 3072
+hidden_act: 'relu'
+pad_index: 103
+word_pred: 0.15
+#train
+bucket_file: ['train-clean-100']
+is_train_wav2vec: False
+epoch: 20
+batch_size: 4
+real_batch_size: 32
+output_path: './output/'
+bucket_dir: './dataset/data'
+wav2vec_dir: './pretrain_models/wav2vec2-base-960h'
+# For yunnao
+#librispeech_path: '/userhome/dataset/librispeech/LibriSpeech'
+# for PC
+librispeech_path: 'D:\OneDrive\datasets\Librispeech\\test-clean\LibriSpeech'

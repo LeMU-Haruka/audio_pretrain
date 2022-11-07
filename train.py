@@ -1,5 +1,8 @@
+import argparse
 import os.path
+import shutil
 
+import yaml
 from torch import Tensor, autograd
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
@@ -23,24 +26,6 @@ torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
 
-config = BartConfig()
-config.num_hidden_layers = 12
-config.hidden_size = 768
-config.encoder_ffn_dim = 3072
-config.hidden_act = 'relu'
-config.pad_index = 103
-config.word_pred = 0.15
-config.is_train_wav2vec = False
-config.batch_size = 2
-config.real_batch_size = 16
-config.output_path = './output/'
-config.bucket_dir = './dataset/data'
-config.wav2vec_dir = './pretrain_models/wav2vec2-base-960h'
-# For yunnao
-config.librispeech_path = '/userhome/dataset/librispeech/LibriSpeech'
-# for PC
-config.librispeech_path = 'D:\OneDrive\数据集\Librispeech\\test-clean\LibriSpeech'
-
 
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
@@ -59,9 +44,31 @@ def bert_encode(encoder, text_input):
     return text_feat, mask, real
 
 
-if __name__ == "__main__":
+def load_config(file='./config/config.yaml'):
+    config = BartConfig()
+    with open(file, 'r') as f:
+        yaml_conf = yaml.load(f, Loader=yaml.FullLoader)
+    for key, value in yaml_conf.items():
+        config.__setattr__(key, value)
     if not os.path.exists(config.output_path):
         os.makedirs(config.output_path)
+    shutil.copy(file, config.output_path)
+    print('already copy config to {}'.format(config.output_path))
+    return config
+
+
+def parse_args():
+    """Parse args."""
+    parser = argparse.ArgumentParser(description='Audio pretrain')
+    parser.add_argument('--config_file', type=str, default="./config/config.yaml", help='Config file')
+    args = parser.parse_known_args()[0]
+    return args
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    config = load_config(args.config_file)
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     config.device = device
     text_encoder = BertModel.from_pretrained('./pretrain_models/bert-base-cased')
@@ -76,7 +83,7 @@ if __name__ == "__main__":
     print('begin to load data')
     # ds = load_dataset("patrickvonplaten/librispeech_asr_dummy", "clean", split="validation")
     ds = SequenceDataset(libri_root=config.librispeech_path, bucket_dir=config.bucket_dir,
-                         bucket_file=['test-clean'], tokenizer=tokenizer, text_encoder=text_encoder, config=config)
+                         bucket_file=config.bucket_file, tokenizer=tokenizer, text_encoder=text_encoder, config=config)
 
     dataloader = torch.utils.data.DataLoader(ds, batch_size=config.batch_size, num_workers=2, collate_fn=ds.collate_fn)
     es = EarlyStoppingCallback(early_stopping_patience=5)
@@ -89,10 +96,9 @@ if __name__ == "__main__":
     scaler = GradScaler()
 
     acc_step = config.real_batch_size / config.batch_size
-
     print('begin to train model, total step is {}'.format(step_size))
     print('is_train_wav2vec is {}'.format(config.is_train_wav2vec))
-    for epoch in range(10):
+    for epoch in range(config.epoch):
         if epoch > 0:
             ds.modal_mask = True
         print('new epoch run, modal mask is {}'.format(ds.modal_mask))
