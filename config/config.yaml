@@ -8,6 +8,7 @@ word_pred: 0.15
 #train
 bucket_file: ['train-clean-100']
 is_train_wav2vec: False
+is_init_pred_weight: True
 epoch: 20
 batch_size: 4
 real_batch_size: 32

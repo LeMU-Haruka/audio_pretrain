@@ -3,21 +3,18 @@ import os.path
 import shutil
 
 import yaml
-from torch import Tensor, autograd
-from torch.nn.utils.rnn import pad_sequence
+
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
-from tqdm import tqdm
 from transformers import Wav2Vec2Model, BertModel, Wav2Vec2Processor, BertTokenizer, BartConfig
 from transformers import EarlyStoppingCallback
-from torch.cuda.amp import autocast as autocast, GradScaler
+from torch.cuda.amp import GradScaler
 
 from dataset.LS_datasets import SequenceDataset
 from models.model import JointModel
 
 import os
 import torch
-import torch.nn as nn
 import numpy as np
 
 seed = 42
@@ -77,7 +74,8 @@ if __name__ == "__main__":
 
     model = JointModel(config)
     # init prediction layer weight with bert embedding
-    # model.update_pred_weight(text_encoder.embeddings.word_embeddings)
+    if config.is_init_pred_weight:
+        model.update_pred_weight(text_encoder.embeddings.word_embeddings)
 
     # load dummy dataset and read soundfiles
     print('begin to load data')
