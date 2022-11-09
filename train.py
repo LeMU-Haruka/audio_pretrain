@@ -3,6 +3,7 @@ import os.path
 import shutil
 
 import yaml
+import random
 
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
@@ -103,10 +104,15 @@ if __name__ == "__main__":
         step = 1
         print_loss = 0
         for batch in dataloader:
+            is_replay = False
             audio_input = batch['wav']
             text_feature, mask, real_label = bert_encode(text_encoder, batch['text_feat'])
 
-            loss = model(audio_input, text_feature, mask, real_label)
+            if config.is_replay:
+                if random.random() < config.replay_prob:
+                    is_replay = True
+
+            loss = model(audio_input, text_feature, mask, real_label, is_replay)
 
             loss = loss / acc_step
             print_loss += loss

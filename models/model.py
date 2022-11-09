@@ -1,3 +1,6 @@
+from typing import Tuple
+
+import random
 import torch
 import torch.nn as nn
 
@@ -35,6 +38,29 @@ class MaxPoolFusion(nn.Module):
         return self.loss(audio_pool, text_pool), audio_pool, text_pool
 
 
+class JointModel(nn.Module):
+
+    def __init__(self, config):
+        super(JointModel, self).__init__()
+        self.config = config
+        self.encoder = FeatureFusionModel(config).to(config.device)
+        self.prediction = PredictionModel(config).to(config.device)
+        self.replay_prediction = ReplayPredictionModel(config).to(config.device)
+
+    def forward(self, audio, text_feat, label, mask_index, is_replay):
+        if is_replay:
+            feat, mask, origin = self.encoder(audio, None, is_replay)
+            loss = self.replay_prediction(feat, mask, origin)
+            return loss
+        x, audio_len = self.encoder(audio, text_feat)
+        loss = self.prediction(x, audio_len, label, mask_index)
+        return loss
+
+    def update_pred_weight(self, embedding):
+        weight = embedding.weight
+        self.prediction.decoder.weight = weight
+
+
 class FeatureFusionModel(nn.Module):
 
     def __init__(self, config):
@@ -43,10 +69,24 @@ class FeatureFusionModel(nn.Module):
         self.audio_encoder = Wav2Vec2Model.from_pretrained(config.wav2vec_dir).to(config.device)
         self.audio_encoder.freeze_feature_extractor()
         self.fusion = CrossTransformer(config).to(config.device)
+        self.masked_spec_embed = nn.Parameter(torch.FloatTensor(768).uniform_())
 
-    def forward(self, audio, text):
+    def forward(self, audio, text, is_replay=False):
+        if is_replay:
+            return self.replay_encode(audio)
         fusion_feat = self.encode_features(audio, text)
         return fusion_feat
+
+    def replay_encode(self, audio):
+        audio_feat = [self.audio_encoder(val.to(self.audio_encoder.device)).last_hidden_state for val in audio]
+        features = []
+        masks = []
+        for val in audio_feat:
+            masked, mask = self.mask(val)
+            feat = self.fusion(masked)
+            masks.append(mask)
+            features.append(feat)
+        return features, masks, audio_feat
 
     def encode_features(self, audio, text):
         if self.config.is_train_wav2vec:
@@ -62,40 +102,30 @@ class FeatureFusionModel(nn.Module):
         features = self.fusion(features)
         return features, audio_len
 
+    def mask(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        mask = _compute_mask((x.size(0), x.size(1)), 0.2, 10, x.device, 2)
+        x[mask] = self.masked_spec_embed.to(x.dtype)
+        return x, mask
 
-class JointModel(nn.Module):
+
+class ReplayPredictionModel(nn.Module):
 
     def __init__(self, config):
-        super(JointModel, self).__init__()
-        self.config = config
-        self.encoder = FeatureFusionModel(config).to(config.device)
-        self.prediction = PredictionModel(config).to(config.device)
+        super(ReplayPredictionModel, self).__init__()
+        self.transform = BertPredictionHeadTransform(config)
+        self.decoder = nn.Linear(config.hidden_size, config.hidden_size, bias=True)
+        self.bias = nn.Parameter(torch.zeros(config.hidden_size))
+        self.decoder.bias = self.bias
+        self.l2_loss = nn.MSELoss()
 
-    def forward(self, audio, text_feat, label, mask_index):
-        x, audio_len = self.encoder(audio, text_feat)
-        loss = self.prediction(x, audio_len, label, mask_index)
-        return loss
-
-    def update_pred_weight(self, embedding):
-        weight = embedding.weight
-        self.prediction.decoder.weight = weight
-
-
-class BertPredictionHeadTransform(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        if isinstance(config.hidden_act, str):
-            self.transform_act_fn = ACT2FN[config.hidden_act]
-        else:
-            self.transform_act_fn = config.hidden_act
-        self.LayerNorm = nn.LayerNorm(config.hidden_size)
-
-    def forward(self, hidden_states):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.transform_act_fn(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states)
-        return hidden_states
+    def forward(self, x, masks, origin):
+        loss = 0
+        for i, m, o in zip(x, masks, origin):
+            feat = self.transform(i)
+            pred_feat = self.decoder(feat)
+            l = self.l2_loss(pred_feat[m], o[m])
+            loss += l
+        return loss / len(x)
 
 
 class PredictionModel(nn.Module):
@@ -131,58 +161,79 @@ class PredictionModel(nn.Module):
             loss += temp_loss
             self.counter += 1
         return loss
-    #
-    # def mask_out(self, x):
-    #     """
-    #     Decide of random words to mask out, and what target they get assigned.
-    #     """
-    #     x = x.squeeze()
-    #     word_pred = 0.15
-    #     fp16 = False
-    #     params = {}
-    #     sample_alpha = 0
-    #     slen, bs = x.size()
-    #
-    #     # define target words to predict
-    #     if sample_alpha == 0:
-    #         pred_mask = np.random.rand(slen, bs) <= word_pred
-    #         pred_mask = torch.from_numpy(pred_mask.astype(np.uint8))
-    #     else:
-    #         x_prob = params.mask_scores[x.flatten()]
-    #         n_tgt = math.ceil(params.word_pred * slen * bs)
-    #         tgt_ids = np.random.choice(len(x_prob), n_tgt, replace=False, p=x_prob / x_prob.sum())
-    #         pred_mask = torch.zeros(slen * bs, dtype=torch.uint8)
-    #         pred_mask[tgt_ids] = 1
-    #         pred_mask = pred_mask.view(slen, bs)
-    #
-    #     # do not predict padding
-    #     # 将batch padding的部分去掉不考虑
-    #     # pred_mask[x == params.pad_index] = 0
-    #     # pred_mask[0] = 0  # TODO: remove
-    #
-    #     # mask a number of words == 0 [8] (faster with fp16)
-    #     if fp16:
-    #         pred_mask = pred_mask.view(-1)
-    #         n1 = pred_mask.sum().item()
-    #         n2 = max(n1 % 8, 8 * (n1 // 8))
-    #         if n2 != n1:
-    #             pred_mask[torch.nonzero(pred_mask).view(-1)[:n1 - n2]] = 0
-    #         pred_mask = pred_mask.view(slen, bs)
-    #         assert pred_mask.sum().item() % 8 == 0
-    #
-    #     # generate possible targets / update x input
-    #     _x_real = x[pred_mask]
-    #     _x_rand = _x_real.clone().random_(self.config.vocab_size)
-    #     _x_mask = _x_real.clone().fill_(params.mask_index)
-    #     probs = torch.multinomial(params.pred_probs, len(_x_real), replacement=True)
-    #     _x = _x_mask * (probs == 0).long() + _x_real * (probs == 1).long() + _x_rand * (probs == 2).long()
-    #     x = x.masked_scatter(pred_mask, _x)
-    #
-    #     assert 0 <= x.min() <= x.max() < params.n_words
-    #     assert x.size() == (slen, bs)
-    #     assert pred_mask.size() == (slen, bs)
-    #
-    #     return x, _x_real, pred_mask
+
+
+class BertPredictionHeadTransform(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        if isinstance(config.hidden_act, str):
+            self.transform_act_fn = ACT2FN[config.hidden_act]
+        else:
+            self.transform_act_fn = config.hidden_act
+        self.LayerNorm = nn.LayerNorm(config.hidden_size)
+
+    def forward(self, hidden_states):
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.transform_act_fn(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states)
+        return hidden_states
+
+
+def _compute_mask(
+        shape: Tuple[int, int],
+        mask_prob: float,
+        mask_length: int,
+        device: torch.device,
+        min_masks: int = 0,
+) -> torch.Tensor:
+    batch_size, sequence_length = shape
+
+    if mask_length < 1:
+        raise ValueError("`mask_length` has to be bigger than 0.")
+
+    if mask_length > sequence_length:
+        raise ValueError(
+            f"`mask_length` has to be smaller than `sequence_length`, but got `mask_length`: {mask_length} and `sequence_length`: {sequence_length}`"
+        )
+
+    # compute number of masked spans in batch
+    num_masked_spans = int(mask_prob * sequence_length / mask_length + random.random())
+    num_masked_spans = max(num_masked_spans, min_masks)
+
+    # make sure num masked indices <= sequence_length
+    if num_masked_spans * mask_length > sequence_length:
+        num_masked_spans = sequence_length // mask_length
+
+    # SpecAugment mask to fill
+    mask = torch.zeros((batch_size, sequence_length), device=device, dtype=torch.bool)
+
+    # uniform distribution to sample from, make sure that offset samples are < sequence_length
+    uniform_dist = torch.ones(
+        (batch_size, sequence_length - (mask_length - 1)), device=device
+    )
+
+    # get random indices to mask
+    mask_indices = torch.multinomial(uniform_dist, num_masked_spans)
+
+    # expand masked indices to masked spans
+    mask_indices = (
+        mask_indices.unsqueeze(dim=-1)
+            .expand((batch_size, num_masked_spans, mask_length))
+            .reshape(batch_size, num_masked_spans * mask_length)
+    )
+    offsets = (
+        torch.arange(mask_length, device=device)[None, None, :]
+            .expand((batch_size, num_masked_spans, mask_length))
+            .reshape(batch_size, num_masked_spans * mask_length)
+    )
+    mask_idxs = mask_indices + offsets
+
+    # scatter indices to mask
+    mask = mask.scatter(1, mask_idxs, True)
+
+    return mask
+
 #
 # from transformers import BertModel, BertTokenizer
 # bert = BertModel.from_pretrained('bert-base-cased')
