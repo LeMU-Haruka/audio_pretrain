@@ -113,10 +113,11 @@ if __name__ == "__main__":
                     is_replay = True
 
             loss = model(audio_input, text_feature, mask, real_label, is_replay)
-
-            loss = loss / acc_step
-            print_loss += loss
-            loss.backward()
+            if isinstance(loss, torch.Tensor):
+                loss = loss / acc_step
+                print_loss += loss
+    
+                loss.backward()
 
             # 梯度累加
             if step % acc_step == 0:
