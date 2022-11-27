@@ -68,6 +68,9 @@ class FeatureFusionModel(nn.Module):
         self.config = config
         self.audio_encoder = Wav2Vec2Model.from_pretrained(config.wav2vec_dir).to(config.device)
         self.audio_encoder.freeze_feature_extractor()
+        if not config.is_train_wav2vec:
+            self.audio_encoder.eval()
+            self.freeze_wav2vec2()
         self.fusion = CrossTransformer(config).to(config.device)
         self.masked_spec_embed = nn.Parameter(torch.FloatTensor(768).uniform_())
 
@@ -106,6 +109,10 @@ class FeatureFusionModel(nn.Module):
         mask = _compute_mask((x.size(0), x.size(1)), 0.2, 10, x.device, 2)
         x[mask] = self.masked_spec_embed.to(x.dtype)
         return x, mask
+
+    def freeze_wav2vec2(self):
+        for p in self.audio_encoder.parameters():
+            p.requires_grad = False
 
 
 class ReplayPredictionModel(nn.Module):

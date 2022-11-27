@@ -80,13 +80,19 @@ if __name__ == "__main__":
 
     # load dummy dataset and read soundfiles
     print('begin to load data')
-    # ds = load_dataset("patrickvonplaten/librispeech_asr_dummy", "clean", split="validation")
     ds = SequenceDataset(libri_root=config.librispeech_path, bucket_dir=config.bucket_dir,
                          bucket_file=config.bucket_file, tokenizer=tokenizer, text_encoder=text_encoder, config=config)
 
     dataloader = torch.utils.data.DataLoader(ds, batch_size=config.batch_size, num_workers=2, collate_fn=ds.collate_fn)
-    es = EarlyStoppingCallback(early_stopping_patience=5)
-    optimizer = AdamW(model.parameters(), lr=1e-6)
+    # es = EarlyStoppingCallback(early_stopping_patience=5)
+
+    for val in model.named_parameters():
+        if not val[1].requires_grad:
+            print(val[0])
+
+    # 优化后版本
+    #optimizer = AdamW(model.parameters(), lr=1e-6)
+    optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
 
     step_size = len(dataloader)
     # file = './log.txt'
@@ -116,7 +122,7 @@ if __name__ == "__main__":
             if isinstance(loss, torch.Tensor):
                 loss = loss / acc_step
                 print_loss += loss
-    
+
                 loss.backward()
 
             # 梯度累加
