@@ -1,7 +1,7 @@
 import argparse
 import os.path
 import shutil
-
+import datetime
 import yaml
 import random
 
@@ -64,6 +64,8 @@ def parse_args():
 
 
 if __name__ == "__main__":
+
+    print('train begin at {}'.format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     args = parse_args()
     config = load_config(args.config_file)
 
@@ -78,7 +80,6 @@ if __name__ == "__main__":
     if config.is_init_pred_weight:
         model.update_pred_weight(text_encoder.embeddings.word_embeddings)
 
-    # load dummy dataset and read soundfiles
     print('begin to load data')
     ds = SequenceDataset(libri_root=config.librispeech_path, bucket_dir=config.bucket_dir,
                          bucket_file=config.bucket_file, tokenizer=tokenizer, text_encoder=text_encoder, config=config)
