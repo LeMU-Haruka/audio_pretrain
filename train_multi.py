@@ -68,9 +68,16 @@ def bert_encode(encoder, text_input):
     mask = [val[2] for val in text_input]
     return text_feat, mask, real
 
+def parse_args():
+    """Parse args."""
+    parser = argparse.ArgumentParser(description='Audio pretrain')
+    parser.add_argument('--config_file', type=str, default="./config/config.yaml", help='Config file')
+    args = parser.parse_known_args()[0]
+    return args
 
 def main():
-    args = load_config()
+    args = parse_args()
+    args = load_config(args.config_file)
     args.ngpus_per_node = torch.cuda.device_count()
     if 'SLURM_JOB_ID' in os.environ:
         # single-node and multi-node distributed training on SLURM cluster
@@ -95,6 +102,7 @@ def main():
 def main_worker(gpu, args):
     config = args
     args.rank += gpu
+    args.device = gpu
     torch.distributed.init_process_group(
         backend='nccl', init_method=args.dist_url,
         world_size=args.world_size, rank=args.rank)
