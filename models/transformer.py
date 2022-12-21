@@ -120,6 +120,7 @@ class TransformerEncoder(nn.Module):
                     output_attentions=output_attentions,
                 )
 
+
             hidden_states = layer_outputs[0]
 
             if output_attentions:

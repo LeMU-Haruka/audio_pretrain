@@ -64,7 +64,6 @@ def parse_args():
 
 
 if __name__ == "__main__":
-
     print('train begin at {}'.format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     args = parse_args()
     config = load_config(args.config_file)
@@ -93,7 +92,7 @@ if __name__ == "__main__":
 
     # 优化后版本
     #optimizer = AdamW(model.parameters(), lr=1e-6)
-    optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-4)
+    optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-6, betas=(0.9, 0.98), eps=1e-6)
 
     step_size = len(dataloader)
     # file = './log.txt'
@@ -105,21 +104,16 @@ if __name__ == "__main__":
     print('begin to train model, total step is {}'.format(step_size))
     print('is_train_wav2vec is {}'.format(config.is_train_wav2vec))
     for epoch in range(config.epoch):
-        if epoch > 0:
+        if epoch > 1:
             ds.modal_mask = True
         print('new epoch run, modal mask is {}'.format(ds.modal_mask))
         step = 1
         print_loss = 0
         for batch in dataloader:
-            is_replay = False
             audio_input = batch['wav']
             text_feature, mask, real_label = bert_encode(text_encoder, batch['text_feat'])
 
-            if config.is_replay:
-                if random.random() < config.replay_prob:
-                    is_replay = True
-
-            loss = model(audio_input, text_feature, mask, real_label, is_replay)
+            loss = model(audio_input, text_feature, mask, real_label)
             if isinstance(loss, torch.Tensor):
                 loss = loss / acc_step
                 print_loss += loss
