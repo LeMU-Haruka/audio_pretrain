@@ -65,9 +65,10 @@ def parse_args():
 
 if __name__ == "__main__":
     print('train begin at {}'.format(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+
     args = parse_args()
     config = load_config(args.config_file)
-
+    assert config.is_tlm or config.is_mlm
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     config.device = device
     text_encoder = BertModel.from_pretrained('./pretrain_models/bert-base-cased')
@@ -75,6 +76,7 @@ if __name__ == "__main__":
     config.vocab_size = tokenizer.vocab_size
 
     model = JointModel(config)
+
     # init prediction layer weight with bert embedding
     if config.is_init_pred_weight:
         model.update_pred_weight(text_encoder.embeddings.word_embeddings)
@@ -104,8 +106,6 @@ if __name__ == "__main__":
     print('begin to train model, total step is {}'.format(step_size))
     print('is_train_wav2vec is {}'.format(config.is_train_wav2vec))
     for epoch in range(config.epoch):
-        if epoch > 1:
-            ds.modal_mask = True
         print('new epoch run, modal mask is {}'.format(ds.modal_mask))
         step = 1
         print_loss = 0

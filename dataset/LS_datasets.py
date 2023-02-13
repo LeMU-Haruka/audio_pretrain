@@ -153,9 +153,9 @@ class SequenceDataset(Dataset):
         mask_index = 103
         bs, slen = x.size()
         pred_mask = self.lm_mask(bs, slen)
-        if self.modal_mask:
-            if random.random() < 0.3:
-                pred_mask = self.modality_mask(bs, slen)
+        # if self.modal_mask:
+        #     if random.random() < 0.5:
+        #         pred_mask = self.modality_mask(bs, slen)
 
         word_mask, word_keep, word_rand = 0.8,0.1,0.1
         pred_probs = torch.FloatTensor([word_mask, word_keep, word_rand])
