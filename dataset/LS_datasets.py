@@ -68,7 +68,8 @@ class SequenceDataset(Dataset):
         Y = {key: Y[key] for key in usage_list}
 
         self.Y = Y
-        self.modal_mask = False
+        self.modal_mask = config.modal_mask
+        print('modal mask is {}'.format(self.modal_mask))
         # self.Y_t = {key : self.mask_out(self.Y[key], 0) for key in usage_list}
 
     def _parse_x_name(self, x):
@@ -152,7 +153,10 @@ class SequenceDataset(Dataset):
         fp16 = False
         mask_index = 103
         bs, slen = x.size()
-        pred_mask = self.lm_mask(bs, slen)
+        if self.modal_mask:
+            pred_mask = self.modality_mask(bs, slen)
+        else:
+            pred_mask = self.lm_mask(bs, slen)
         # if self.modal_mask:
         #     if random.random() < 0.5:
         #         pred_mask = self.modality_mask(bs, slen)

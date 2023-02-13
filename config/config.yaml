@@ -1,5 +1,5 @@
 # model
-encoder: 'wavlm'
+encoder: 'wav2vec2'
 num_hidden_layers: 3
 hidden_size: 768
 encoder_ffn_dim: 3072
@@ -11,15 +11,16 @@ bucket_file: ['test-clean']
 is_train_wav2vec: False
 is_init_pred_weight: False
 is_replay: True
+modal_mask: False
 replay_prob: 0.1
 epoch: 20
 batch_size: 4
 real_batch_size: 32
 output_path: './output/'
 bucket_dir: './dataset/data'
-#wav2vec_dir: './pretrain_models/wav2vec2-base-960h'
+wav2vec_dir: './pretrain_models/wav2vec2-base-960h'
 #wav2vec_dir: './pretrain_models/hubert-base-ls960'
-wav2vec_dir: './pretrain_models/wavlm-base'
+# wav2vec_dir: './pretrain_models/wavlm-base'
 # For yunnao
 #librispeech_path: '/userhome/dataset/librispeech/LibriSpeech'
 # for PC

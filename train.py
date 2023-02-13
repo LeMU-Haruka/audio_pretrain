@@ -37,7 +37,7 @@ def compute_metrics(eval_pred):
 def bert_encode(encoder, text_input):
     with torch.no_grad():
         text_feat = [encoder(**val[0]).last_hidden_state for val in text_input]
-    real = [val[3] for val in text_input]
+    real = [val[4] for val in text_input]
     mask = [val[2] for val in text_input]
     return text_feat, mask, real
 
@@ -68,7 +68,7 @@ if __name__ == "__main__":
 
     args = parse_args()
     config = load_config(args.config_file)
-    assert config.is_tlm or config.is_mlm
+    # assert config.is_tlm or config.is_mlm
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     config.device = device
     text_encoder = BertModel.from_pretrained('./pretrain_models/bert-base-cased')
@@ -88,9 +88,9 @@ if __name__ == "__main__":
     dataloader = torch.utils.data.DataLoader(ds, batch_size=config.batch_size, num_workers=2, collate_fn=ds.collate_fn)
     # es = EarlyStoppingCallback(early_stopping_patience=5)
 
-    for val in model.named_parameters():
-        if not val[1].requires_grad:
-            print(val[0])
+    # for val in model.named_parameters():
+    #     if not val[1].requires_grad:
+    #         print(val[0])
 
     # 优化后版本
     #optimizer = AdamW(model.parameters(), lr=1e-6)
